@@ -1,0 +1,53 @@
+@startuml
+!include skin.iuml
+skinparam sequenceMessageAlign center
+skinparam ParticipantPadding 6
+skinparam BoxPadding 4
+skinparam sequenceParticipantBorderColor #444444
+skinparam sequenceParticipantBackgroundColor #DCE6F2
+skinparam sequenceLifeLineBorderColor #888888
+title Request sequence: GET /orders/42 with a valid API key
+
+participant "Gateway\nentry point" as GW
+participant "Default\nFilterChain" as FC
+participant "Authentication\nFilter" as AF
+participant "Enforcement\nFilter" as EF
+participant "RateLimit\nFilter" as RF
+participant "Routing\nFilter" as RT
+participant "Proxy\nFilter" as PF
+participant "Upstream\nClient" as UC
+participant "Event\nPublisher" as EP
+
+GW -> FC : proceed(ctx)
+FC -> AF : filter(ctx, chain)
+AF -> AF : ApiKeyAuthenticator\n.authenticate(req)
+AF -> FC : proceed(ctx.withPrincipal(p))
+FC -> EF : filter(ctx, chain)
+EF -> EF : EnforcementView\n.blockReason(keyId)
+EF -> FC : proceed(ctx)
+FC -> RF : filter(ctx, chain)
+RF -> RF : RateLimiter.tryAcquire\n(atomic Redis script)
+RF -> FC : proceed(ctx)
+FC -> RT : filter(ctx, chain)
+RT -> RT : match route, healthy\ninstances, strategy.select
+RT -> FC : proceed(ctx.withRoute(r))
+FC -> PF : filter(ctx, chain)
+PF -> PF : CircuitBreaker\n.allowsCall()
+PF -> UC : send(req, instance, timeout)
+UC --> PF : UpstreamResponse
+PF --> GW : Forwarded(response)
+note over FC, RT : return values pass back up through each filter (omitted for clarity)
+GW ->> EP : publish(RequestEvent)
+note right of EP
+  Asynchronous: never
+  blocks or fails the
+  client response.
+end note
+
+== Alternative: any check fails ==
+RF --> GW : Rejected(429, RATE_LIMITED)
+note over AF, RT
+  A filter returns Rejected instead of calling proceed();
+  later filters never run. The event is still published.
+end note
+@enduml

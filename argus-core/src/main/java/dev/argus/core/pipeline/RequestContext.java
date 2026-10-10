@@ -1,7 +1,8 @@
 package dev.argus.core.pipeline;
 
-import dev.argus.core.auth.Principal;
-import dev.argus.core.routing.Route;
+import dev.argus.core.model.IncomingRequest;
+import dev.argus.core.model.Principal;
+import dev.argus.core.model.Route;
 import java.util.Objects;
 import java.util.Optional;
 

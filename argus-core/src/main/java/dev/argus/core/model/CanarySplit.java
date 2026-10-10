@@ -1,4 +1,4 @@
-package dev.argus.core.routing;
+package dev.argus.core.model;
 
 import java.util.Objects;
 

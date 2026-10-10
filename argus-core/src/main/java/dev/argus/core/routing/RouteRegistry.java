@@ -1,6 +1,7 @@
 package dev.argus.core.routing;
 
-import dev.argus.core.pipeline.IncomingRequest;
+import dev.argus.core.model.IncomingRequest;
+import dev.argus.core.model.Route;
 import java.util.Collection;
 import java.util.Optional;
 

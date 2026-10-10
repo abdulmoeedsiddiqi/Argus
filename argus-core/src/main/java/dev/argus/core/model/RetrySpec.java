@@ -1,4 +1,4 @@
-package dev.argus.core.resilience;
+package dev.argus.core.model;
 
 import java.time.Duration;
 import java.util.Objects;

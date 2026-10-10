@@ -1,4 +1,4 @@
-package dev.argus.core.pipeline;
+package dev.argus.core.model;
 
 /** HTTP methods understood by the gateway, with their retry-safety classification. */
 public enum HttpMethod {

@@ -1,0 +1,23 @@
+@startuml
+!include skin.iuml
+skinparam stateBorderColor #444444
+skinparam stateBackgroundColor #DCE6F2
+skinparam stateArrowColor #444444
+hide empty description
+title Circuit breaker state machine (implemented with the State pattern)
+
+[*] --> CLOSED
+CLOSED --> CLOSED : success /\nreset failure count
+CLOSED --> OPEN : failure and\nconsecutiveFailures >= threshold
+OPEN --> OPEN : call rejected\n(CircuitOpenException, 503)
+OPEN --> HALF_OPEN : openDuration elapsed\n(checked on next call)
+HALF_OPEN --> CLOSED : all trial calls succeed
+HALF_OPEN --> OPEN : any trial call fails
+HALF_OPEN --> HALF_OPEN : trial permits (Semaphore)\nexhausted / reject extra calls
+
+note left of CLOSED
+  Every transition uses
+  compare-and-set, so exactly
+  one thread performs it.
+end note
+@enduml

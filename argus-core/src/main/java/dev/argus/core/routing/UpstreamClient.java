@@ -1,8 +1,9 @@
 package dev.argus.core.routing;
 
 import dev.argus.core.exception.UpstreamTimeoutException;
-import dev.argus.core.pipeline.IncomingRequest;
-import dev.argus.core.pipeline.UpstreamResponse;
+import dev.argus.core.model.IncomingRequest;
+import dev.argus.core.model.UpstreamInstance;
+import dev.argus.core.model.UpstreamResponse;
 import java.time.Duration;
 
 /**

@@ -1,6 +1,7 @@
 package dev.argus.core.auth;
 
-import dev.argus.core.pipeline.IncomingRequest;
+import dev.argus.core.model.IncomingRequest;
+import dev.argus.core.model.Principal;
 import java.util.Optional;
 
 /**

@@ -1,0 +1,29 @@
+digraph G {
+  rankdir=LR; nodesep=0.25; ranksep=0.9;
+  node [shape=box, style="rounded,filled", fontname="Liberation Sans", fontsize=12, color="#444444"];
+  edge [color="#555555", arrowsize=0.7];
+  labelloc=t; fontname="Liberation Sans"; fontsize=13; label="argus-core package dependencies (measured with jdeps; I = instability)";
+  "contracts" [label="contracts\nCa=1  Ce=0  I=0.00", fillcolor="#EBF1DE"];
+  "core.auth" [label="core.auth\nCa=0  Ce=1  I=1.00", fillcolor="#DCE6F2"];
+  "core.events" [label="core.events\nCa=0  Ce=1  I=1.00", fillcolor="#DCE6F2"];
+  "core.exception" [label="core.exception\nCa=2  Ce=0  I=0.00", fillcolor="#EBF1DE"];
+  "core.loadbalancing" [label="core.loadbalancing\nCa=0  Ce=2  I=1.00", fillcolor="#DCE6F2"];
+  "core.model" [label="core.model\nCa=6  Ce=0  I=0.00", fillcolor="#EBF1DE"];
+  "core.pipeline" [label="core.pipeline\nCa=1  Ce=1  I=0.50", fillcolor="#FFF2CC"];
+  "core.ratelimit" [label="core.ratelimit\nCa=0  Ce=2  I=1.00", fillcolor="#DCE6F2"];
+  "core.resilience" [label="core.resilience\nCa=0  Ce=2  I=1.00", fillcolor="#DCE6F2"];
+  "core.routing" [label="core.routing\nCa=0  Ce=2  I=1.00", fillcolor="#DCE6F2"];
+  "core.time" [label="core.time\nCa=1  Ce=0  I=0.00", fillcolor="#EBF1DE"];
+  "core.auth" -> "core.model";
+  "core.events" -> "contracts";
+  "core.loadbalancing" -> "core.model";
+  "core.loadbalancing" -> "core.pipeline";
+  "core.pipeline" -> "core.model";
+  "core.ratelimit" -> "core.exception";
+  "core.ratelimit" -> "core.model";
+  "core.resilience" -> "core.model";
+  "core.resilience" -> "core.time";
+  "core.routing" -> "core.exception";
+  "core.routing" -> "core.model";
+
+}

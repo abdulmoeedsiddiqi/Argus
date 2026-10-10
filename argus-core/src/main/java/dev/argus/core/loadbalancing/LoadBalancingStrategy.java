@@ -1,7 +1,7 @@
 package dev.argus.core.loadbalancing;
 
+import dev.argus.core.model.UpstreamInstance;
 import dev.argus.core.pipeline.RequestContext;
-import dev.argus.core.routing.UpstreamInstance;
 import java.util.List;
 import java.util.Optional;
 

@@ -1,5 +1,6 @@
 package dev.argus.core.pipeline;
 
+import dev.argus.core.model.UpstreamResponse;
 import java.util.Objects;
 
 /** Outcome of running the pipeline: either an upstream response or a rejection. */

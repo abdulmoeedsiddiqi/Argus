@@ -1,9 +1,5 @@
-package dev.argus.core.routing;
+package dev.argus.core.model;
 
-import dev.argus.core.loadbalancing.LoadBalancingPolicy;
-import dev.argus.core.pipeline.HttpMethod;
-import dev.argus.core.ratelimit.RateLimitPolicy;
-import dev.argus.core.resilience.RetrySpec;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.Set;

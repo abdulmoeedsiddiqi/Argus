@@ -1,5 +1,7 @@
 package dev.argus.core.loadbalancing;
 
+import dev.argus.core.model.LoadBalancingPolicy;
+
 /** Factory Method: turns a configured policy into a strategy, hiding concrete classes from callers. */
 public interface LoadBalancingStrategyFactory {
 

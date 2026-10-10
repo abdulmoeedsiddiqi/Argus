@@ -1,4 +1,4 @@
-package dev.argus.core.auth;
+package dev.argus.core.model;
 
 import java.time.Instant;
 import java.util.Objects;

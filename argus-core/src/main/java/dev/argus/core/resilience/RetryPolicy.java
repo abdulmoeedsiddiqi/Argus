@@ -1,6 +1,6 @@
 package dev.argus.core.resilience;
 
-import dev.argus.core.pipeline.IncomingRequest;
+import dev.argus.core.model.IncomingRequest;
 import java.time.Duration;
 import java.util.Optional;
 

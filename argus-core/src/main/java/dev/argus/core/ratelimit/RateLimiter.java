@@ -1,6 +1,7 @@
 package dev.argus.core.ratelimit;
 
 import dev.argus.core.exception.RateLimiterUnavailableException;
+import dev.argus.core.model.RateLimitPolicy;
 
 /**
  * Contract shared by every limiter (LocalTokenBucketLimiter, RedisRateLimiter,

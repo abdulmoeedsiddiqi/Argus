@@ -1,4 +1,4 @@
-package dev.argus.core.ratelimit;
+package dev.argus.core.model;
 
 import java.time.Duration;
 import java.util.Objects;
