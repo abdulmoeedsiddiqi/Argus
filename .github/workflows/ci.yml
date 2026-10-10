@@ -36,4 +36,4 @@ jobs:
       #   env:
       #     SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
       #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      #   run: mvn -B org.sonarsource.scanner.maven:sonar-maven-plugin:sonar -Dsonar.projectKey=abdulmoeedsiddiqi_argus-gateway -Dsonar.organization=abdulmoeedsiddiqi
+      #   run: mvn -B org.sonarsource.scanner.maven:sonar-maven-plugin:sonar -Dsonar.projectKey=abdulmoeedsiddiqi_Argus -Dsonar.organization=abdulmoeedsiddiqi
