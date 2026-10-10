@@ -1,0 +1,80 @@
+@startuml
+!include skin.iuml
+title Request pipeline and authentication (Chain of Responsibility, Factory)
+
+interface GatewayFilter {
+  +filter(ctx: RequestContext, chain: FilterChain): FilterResult
+  +order(): int
+}
+interface FilterChain {
+  +proceed(ctx: RequestContext): FilterResult
+}
+class DefaultFilterChain {
+  -filters: List<GatewayFilter>
+  -index: int
+  +proceed(ctx): FilterResult
+}
+class FilterChainFactory <<factory>> {
+  +create(filters): FilterChain
+}
+class AuthenticationFilter
+class EnforcementFilter
+class RateLimitFilter
+class RoutingFilter
+class ProxyFilter
+class "RequestContext" as RC <<record>> {
+  +request: IncomingRequest
+  +principal: Principal
+  +route: Route
+  +withPrincipal(p): RequestContext
+  +withRoute(r): RequestContext
+}
+interface "FilterResult" as FR <<sealed>>
+class Forwarded <<record>> {
+  +response: UpstreamResponse
+}
+class Rejected <<record>> {
+  +httpStatus: int
+  +reason: RejectionReason
+}
+interface Authenticator {
+  +supports(req): boolean
+  +authenticate(req): Optional<Principal>
+}
+class JwtAuthenticator
+class ApiKeyAuthenticator {
+  -hasher: ApiKeyHasher
+}
+interface ApiKeyStore <<port>> {
+  +findByHash(hash): Optional<ApiKeyRecord>
+}
+interface EnforcementView <<port>> {
+  +blockReason(apiKeyId): Optional<String>
+}
+interface RateLimiter <<port>>
+
+FilterChain <|.. DefaultFilterChain
+DefaultFilterChain o-- "1..*" GatewayFilter : ordered
+FilterChainFactory ..> DefaultFilterChain : creates
+GatewayFilter <|.. AuthenticationFilter
+GatewayFilter <|.. EnforcementFilter
+GatewayFilter <|.. RateLimitFilter
+GatewayFilter <|.. RoutingFilter
+GatewayFilter <|.. ProxyFilter
+GatewayFilter ..> RC
+GatewayFilter ..> FR
+FR <|.. Forwarded
+FR <|.. Rejected
+AuthenticationFilter --> "1..*" Authenticator
+Authenticator <|.. JwtAuthenticator
+Authenticator <|.. ApiKeyAuthenticator
+ApiKeyAuthenticator --> ApiKeyStore
+EnforcementFilter --> EnforcementView
+RateLimitFilter --> RateLimiter
+
+note right of DefaultFilterChain
+  Order: Authentication(100) -> Enforcement(200)
+  -> RateLimit(300) -> Routing(400) -> Proxy(500).
+  Any filter may return Rejected and stop the chain.
+end note
+@enduml

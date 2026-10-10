@@ -1,0 +1,16 @@
+skinparam defaultFontName "Liberation Sans"
+skinparam defaultFontSize 13
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+skinparam roundCorner 6
+skinparam ArrowColor #444444
+skinparam classBorderColor #444444
+skinparam classBackgroundColor #FFFFFF
+skinparam packageBorderColor #888888
+skinparam packageBackgroundColor #FAFAFA
+skinparam noteBackgroundColor #FFF8DC
+skinparam noteBorderColor #B8A04A
+skinparam componentBorderColor #444444
+skinparam componentBackgroundColor #DCE6F2
+skinparam interfaceBackgroundColor #FFFFFF
+hide empty members

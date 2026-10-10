@@ -1,0 +1,59 @@
+@startuml
+!include skin.iuml
+title Gateway event and control-plane adapters (Adapter, Decorator, Observer)
+
+interface EventPublisher <<port>> {
+  +publish(event: RequestEvent)
+}
+class KafkaEventPublisher <<adapter>> {
+  -kafka: KafkaTemplate<String, RequestEvent>
+}
+class SpillingEventPublisher <<decorator>> {
+  -delegate: EventPublisher
+  -spillFile: SpillFile
+  +replayPending()
+}
+interface EnforcementView <<port>> {
+  +blockReason(apiKeyId): Optional<String>
+}
+interface ConfigurationListener <<observer>> {
+  +onChange(change: ConfigChange)
+}
+class EnforcementCache {
+  -decisions: ConcurrentHashMap<String, EnforcementDecision>
+}
+class ConfigTopicConsumer <<subject>> {
+  -listeners: List<ConfigurationListener>
+}
+class EnforcementTopicConsumer
+class RouteConfigApplier {
+  -registry: RouteRegistry
+}
+class ApiKeyCache {
+  -keys: ConcurrentHashMap<String, ApiKeyRecord>
+}
+class RequestEvent <<record>>
+
+EventPublisher <|.. KafkaEventPublisher
+EventPublisher <|.. SpillingEventPublisher
+SpillingEventPublisher o-- EventPublisher : delegate
+EventPublisher ..> RequestEvent
+EnforcementView <|.. EnforcementCache
+EnforcementTopicConsumer --> EnforcementCache : updates
+ConfigTopicConsumer o-- "*" ConfigurationListener : notifies
+ConfigurationListener <|.. RouteConfigApplier
+ConfigurationListener <|.. ApiKeyCache
+
+KafkaEventPublisher -[hidden]down-> EnforcementView
+RequestEvent -[hidden]down-> ConfigTopicConsumer
+note bottom of SpillingEventPublisher
+  If Kafka is unreachable, appends events to a
+  local file; a background task replays them.
+  publish() never blocks or fails the request.
+end note
+note bottom of ConfigTopicConsumer
+  Reads the compacted config topic from the
+  beginning on startup, so a restarted instance
+  rebuilds routes and keys before serving.
+end note
+@enduml

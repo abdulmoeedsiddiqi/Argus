@@ -1,0 +1,57 @@
+@startuml
+!include skin.iuml
+title Rate limiting (Strategy, Decorator, Adapter)
+
+interface RateLimiter {
+  +tryAcquire(key, policy): RateLimitDecision
+}
+class LocalTokenBucketLimiter {
+  -buckets: ConcurrentHashMap<RateLimitKey, TokenBucket>
+  -time: TimeSource
+}
+class TokenBucket {
+  -tokens: double
+  -lastRefill: Instant
+  -lock: ReentrantLock
+  +tryConsume(now): boolean
+}
+class "RedisRateLimiter" as RRL <<adapter>> {
+  -redis: StringRedisTemplate
+  -script: RedisScript
+}
+class FallbackRateLimiter <<decorator>> {
+  -primary: RateLimiter
+  -fallback: RateLimiter
+}
+class RateLimitPolicy <<record>> {
+  +capacity: int
+  +refillPeriod: Duration
+}
+class RateLimitDecision <<record>> {
+  +allowed: boolean
+  +remaining: long
+  +retryAfter: Duration
+}
+interface TimeSource {
+  +now(): Instant
+}
+RateLimiter <|.. LocalTokenBucketLimiter
+RateLimiter <|.. RRL
+RateLimiter <|.. FallbackRateLimiter
+FallbackRateLimiter o-- RateLimiter : primary = Redis
+FallbackRateLimiter o-- RateLimiter : fallback = local
+LocalTokenBucketLimiter *-- "*" TokenBucket
+LocalTokenBucketLimiter --> TimeSource
+RateLimiter ..> RateLimitPolicy
+RateLimiter ..> RateLimitDecision
+note bottom of RRL
+  argus-gateway module. One atomic Lua script:
+  refill + check + decrement, so all instances
+  share one exact limit.
+end note
+note bottom of FallbackRateLimiter
+  On RateLimiterUnavailableException,
+  delegates to the local limiter
+  (graceful degradation).
+end note
+@enduml

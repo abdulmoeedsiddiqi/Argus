@@ -1,0 +1,49 @@
+@startuml
+!include skin.iuml
+title Metering and abuse detection services (Strategy, Repository)
+
+package "argus-metering" {
+  class MeteringEventConsumer {
+    +onBatch(events: List<RequestEvent>)
+  }
+  class UsageLedgerRepository <<repository>> {
+    +insertIgnoringDuplicates(events): int  // ON CONFLICT DO NOTHING
+    +monthlyCount(apiKeyId, month): long
+  }
+  class QuotaEvaluator {
+    +evaluate(apiKeyId): Optional<EnforcementDecision>
+  }
+  class "EnforcementPublisher " as MP {
+    +publish(decision: EnforcementDecision)
+  }
+}
+package "argus-abuse" {
+  class AbuseEventConsumer {
+    +onEvent(event: RequestEvent)
+  }
+  interface DetectionRule <<strategy>> {
+    +evaluate(event, window): Optional<EnforcementDecision>
+  }
+  class AuthFailureBurstRule {
+    -threshold: int
+  }
+  class RequestBurstRule {
+    -threshold: int
+  }
+  class SlidingWindowCounter {
+    -buckets: ConcurrentHashMap<String, Deque<Instant>>
+  }
+  class "EnforcementPublisher" as AP {
+    +publish(decision: EnforcementDecision)
+  }
+}
+MeteringEventConsumer --> UsageLedgerRepository
+MeteringEventConsumer --> QuotaEvaluator
+QuotaEvaluator --> MP
+AbuseEventConsumer --> "*" DetectionRule
+AbuseEventConsumer --> SlidingWindowCounter
+DetectionRule <|.. AuthFailureBurstRule
+DetectionRule <|.. RequestBurstRule
+AbuseEventConsumer --> AP
+MP -[hidden]down-> AbuseEventConsumer
+@enduml

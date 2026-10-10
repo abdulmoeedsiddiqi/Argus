@@ -1,0 +1,73 @@
+@startuml
+!include skin.iuml
+title Routing and load balancing (Builder, Strategy, Factory Method)
+
+class RoutingFilter {
+  +filter(ctx, chain): FilterResult
+}
+interface RouteRegistry {
+  +match(req): Optional<Route>
+  +replaceAll(routes)
+}
+class SnapshotRouteRegistry {
+  -snapshot: AtomicReference<RouteTable>
+}
+class Route <<record>> {
+  +id, pathPrefix, serviceId
+  +loadBalancing: LoadBalancingPolicy
+  +timeout, retry, rateLimit, canary
+  +{static} builder(): Route.Builder
+}
+class "Route.Builder" as RB {
+  +pathPrefix(p): Builder
+  +service(id): Builder
+  +loadBalancing(policy): Builder
+  +canary(version, percent): Builder
+  +build(): Route
+}
+interface UpstreamRegistry {
+  +healthyInstances(serviceId): List<UpstreamInstance>
+  +updateHealth(id, status)
+}
+class HealthChecker {
+  -scheduler: ScheduledExecutorService
+  +checkAll()
+}
+interface LoadBalancingStrategyFactory {
+  +create(policy): LoadBalancingStrategy
+}
+interface LoadBalancingStrategy {
+  +select(instances, ctx): Optional<UpstreamInstance>
+}
+class RoundRobinStrategy {
+  -counter: AtomicInteger
+}
+class WeightedStrategy {
+  -random: ThreadLocalRandom
+}
+class LeastConnectionsStrategy {
+  -active: ConcurrentHashMap<String, AtomicInteger>
+}
+class CanarySelector {
+  +filterByVersion(instances, split): List<UpstreamInstance>
+}
+
+RoutingFilter --> RouteRegistry
+RoutingFilter --> UpstreamRegistry
+RoutingFilter --> LoadBalancingStrategyFactory
+RoutingFilter --> CanarySelector
+RouteRegistry <|.. SnapshotRouteRegistry
+SnapshotRouteRegistry o-- "*" Route
+Route +-- RB
+HealthChecker --> UpstreamRegistry
+LoadBalancingStrategyFactory ..> LoadBalancingStrategy : creates
+LoadBalancingStrategy <|.. RoundRobinStrategy
+LoadBalancingStrategy <|.. WeightedStrategy
+LoadBalancingStrategy <|.. LeastConnectionsStrategy
+
+note bottom of SnapshotRouteRegistry
+  Readers use the current immutable snapshot;
+  config updates build a new table and swap it
+  with one atomic set (no locks on the hot path).
+end note
+@enduml

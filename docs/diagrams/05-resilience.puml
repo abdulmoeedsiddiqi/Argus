@@ -1,0 +1,68 @@
+@startuml
+!include skin.iuml
+title Resilience (State, Strategy)
+
+class CircuitBreaker {
+  -state: AtomicReference<CircuitState>
+  -policy: CircuitBreakerPolicy
+  -time: TimeSource
+  +execute(call: Supplier<T>): T
+  +transition(expected, next): boolean
+}
+interface CircuitBreakerContext {
+  +policy(): CircuitBreakerPolicy
+  +timeSource(): TimeSource
+  +transition(expected, next): boolean
+}
+interface CircuitState {
+  +name(): CircuitStateName
+  +allowsCall(ctx): boolean
+  +onSuccess(ctx)
+  +onFailure(ctx)
+}
+class ClosedState {
+  -consecutiveFailures: AtomicInteger
+}
+class OpenState {
+  -openedAt: Instant
+}
+class HalfOpenState {
+  -trialPermits: Semaphore
+}
+class CircuitBreakerRegistry {
+  -breakers: ConcurrentHashMap<String, CircuitBreaker>
+  +forService(serviceId): CircuitBreaker
+}
+interface RetryPolicy {
+  +nextDelay(req, attempts, failure): Optional<Duration>
+}
+class ExponentialBackoffRetryPolicy {
+  -spec: RetrySpec
+}
+class ProxyFilter
+interface UpstreamClient <<port>> {
+  +send(req, target, timeout): UpstreamResponse
+}
+CircuitBreakerContext <|.. CircuitBreaker
+CircuitBreaker o-- CircuitState : current
+CircuitState <|.. ClosedState
+CircuitState <|.. OpenState
+CircuitState <|.. HalfOpenState
+CircuitBreakerRegistry *-- "*" CircuitBreaker
+RetryPolicy <|.. ExponentialBackoffRetryPolicy
+ProxyFilter --> CircuitBreakerRegistry
+ProxyFilter --> RetryPolicy
+ProxyFilter --> UpstreamClient
+ExponentialBackoffRetryPolicy -[hidden]down-> HalfOpenState
+note left of CircuitState
+  CLOSED to OPEN: failures reach threshold
+  OPEN to HALF_OPEN: openDuration elapsed
+  HALF_OPEN to CLOSED: trial calls succeed
+  HALF_OPEN to OPEN: a trial call fails
+end note
+note bottom of ExponentialBackoffRetryPolicy
+  Returns empty for non-idempotent
+  methods (POST, PATCH): a retry must
+  never duplicate a side effect.
+end note
+@enduml

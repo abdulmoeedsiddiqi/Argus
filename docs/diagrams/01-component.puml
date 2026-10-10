@@ -1,0 +1,43 @@
+@startuml
+!include skin.iuml
+top to bottom direction
+skinparam componentStyle uml2
+
+actor "API client" as client
+node "Nginx" as nginx
+
+package "argus-gateway (x3 instances)" as gw {
+  component "HTTP proxy\nentry point" as proxy
+  component "argus-core\n(filter pipeline, routing,\nload balancing, rate limiting,\ncircuit breaker)" as core #C9DAF0
+  component "Adapters\nRedis / Kafka / JWT / HTTP client" as adapters
+}
+
+component "argus-admin\nAdmin API" as admin
+component "argus-metering\nMetering & Quota" as metering
+component "argus-abuse\nAbuse Detection" as abuse
+component "argus-contracts\nshared event records" as contracts #EBF1DE
+
+database "PostgreSQL" as pg
+database "Redis" as redis
+queue "Kafka\nrequest-events\nenforcement\nconfig" as kafka
+component "Upstream services\nUsers / Orders / Products" as ups
+
+client --> nginx
+nginx --> proxy
+proxy --> core : RequestContext
+core --> adapters : ports\n(RateLimiter, EventPublisher,\nEnforcementView, ApiKeyStore,\nUpstreamClient)
+adapters --> redis
+adapters --> kafka
+adapters --> ups : forwarded request
+kafka --> metering
+kafka --> abuse
+metering --> kafka : quota decisions
+abuse --> kafka : block decisions
+admin --> kafka : ConfigChange
+admin --> pg
+metering --> pg
+core ..> contracts
+metering ..> contracts
+abuse ..> contracts
+admin ..> contracts
+@enduml
