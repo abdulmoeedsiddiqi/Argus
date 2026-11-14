@@ -1,7 +1,11 @@
-package dev.argus.core.pipeline;
+package dev.argus.core.resilience;
 
 import dev.argus.core.model.UpstreamInstance;
 import dev.argus.core.model.UpstreamResponse;
+import dev.argus.core.pipeline.FilterChain;
+import dev.argus.core.pipeline.FilterResult;
+import dev.argus.core.pipeline.GatewayFilter;
+import dev.argus.core.pipeline.RequestContext;
 import dev.argus.core.routing.UpstreamClient;
 import java.time.Duration;
 import java.util.Objects;

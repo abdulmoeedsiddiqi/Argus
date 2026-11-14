@@ -1,4 +1,4 @@
-package dev.argus.core.pipeline;
+package dev.argus.core.resilience;
 
 import static dev.argus.core.pipeline.PipelineFixtures.getOrder42;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -7,6 +7,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import dev.argus.core.model.IncomingRequest;
 import dev.argus.core.model.UpstreamInstance;
 import dev.argus.core.model.UpstreamResponse;
+import dev.argus.core.pipeline.FilterChain;
+import dev.argus.core.pipeline.FilterResult;
+import dev.argus.core.pipeline.RequestContext;
 import dev.argus.core.routing.UpstreamClient;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;

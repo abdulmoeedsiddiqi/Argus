@@ -4,7 +4,7 @@ import dev.argus.core.model.UpstreamInstance;
 import dev.argus.core.pipeline.FilterChain;
 import dev.argus.core.pipeline.FilterChainFactory;
 import dev.argus.core.pipeline.GatewayFilter;
-import dev.argus.core.pipeline.ProxyFilter;
+import dev.argus.core.resilience.ProxyFilter;
 import dev.argus.core.routing.UpstreamClient;
 import dev.argus.gateway.upstream.JdkHttpUpstreamClient;
 import java.util.List;
