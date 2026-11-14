@@ -1,0 +1,9 @@
+# Keep the Docker build context small and free of local build output.
+.git
+.github
+.idea
+.vscode
+**/target
+docs
+deploy/data
+*.md

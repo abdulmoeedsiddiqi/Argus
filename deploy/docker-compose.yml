@@ -1,3 +1,7 @@
+# Walking skeleton (no profile needed): gateway-1 and orders-service.
+#   docker compose -f deploy/docker-compose.yml up --build
+#   curl http://localhost:8080/orders/42
+#
 # Profiles:
 #   core - infrastructure for day-to-day development (PostgreSQL, Redis, Kafka)
 #   full - everything: 3 gateways behind Nginx, services, upstreams, monitoring
@@ -5,17 +9,16 @@ name: argus
 
 x-gateway: &gateway
   build: { context: .., dockerfile: deploy/Dockerfile, args: { MODULE: argus-gateway } }
-  profiles: [full]
   mem_limit: 512m
   environment: &gateway-env
+    # Walking skeleton: every request is forwarded to this one upstream.
+    ARGUS_UPSTREAM_URL: http://orders-service:8081
     SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
     SPRING_DATA_REDIS_HOST: redis
     JAVA_TOOL_OPTIONS: -Xmx384m
-  depends_on: [kafka, redis]
 
 x-upstream: &upstream
   build: { context: .., dockerfile: deploy/Dockerfile, args: { MODULE: upstreams/mock-service } }
-  profiles: [full]
   mem_limit: 256m
 
 services:
@@ -47,15 +50,22 @@ services:
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_HEAP_OPTS: -Xmx512m -Xms512m
 
+  # No profile: part of the walking skeleton. Published on 8080 until Nginx takes that port.
   gateway-1:
     <<: *gateway
+    ports: ["8080:8080"]
     environment: { <<: *gateway-env, ARGUS_INSTANCE_ID: gateway-1 }
+    depends_on: [orders-service]
   gateway-2:
     <<: *gateway
+    profiles: [full]
     environment: { <<: *gateway-env, ARGUS_INSTANCE_ID: gateway-2 }
+    depends_on: [kafka, redis]
   gateway-3:
     <<: *gateway
+    profiles: [full]
     environment: { <<: *gateway-env, ARGUS_INSTANCE_ID: gateway-3 }
+    depends_on: [kafka, redis]
 
   nginx:
     image: nginx:1.27
@@ -68,7 +78,8 @@ services:
     build: { context: .., dockerfile: deploy/Dockerfile, args: { MODULE: argus-admin } }
     profiles: [full]
     mem_limit: 384m
-    ports: ["8081:8081"]
+    # Admin API on host port 9000 (scope document, Section 7.2); 8081 belongs to the backends.
+    ports: ["9000:8081"]
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/argus
       SPRING_DATASOURCE_USERNAME: argus
@@ -100,12 +111,16 @@ services:
 
   users-service:
     <<: *upstream
+    profiles: [full]
     environment: { SERVICE_NAME: users }
+  # No profile: part of the walking skeleton. Port published so POST /fault can be tried by hand.
   orders-service:
     <<: *upstream
+    ports: ["8081:8081"]
     environment: { SERVICE_NAME: orders }
   products-service:
     <<: *upstream
+    profiles: [full]
     environment: { SERVICE_NAME: products }
 
   prometheus:
