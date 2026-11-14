@@ -250,23 +250,34 @@ JDK 21 has to be installed.
 
 ### Run locally
 
-**Walking skeleton** (one gateway forwarding every request to one mock backend). No profile and
-no manual build are needed; the images compile the code themselves:
+**Routing demo** (one gateway in front of six backend copies). No profile and no manual build
+are needed; the images compile the code themselves:
 
 ```bash
 docker compose -f deploy/docker-compose.yml up --build -d
-curl http://localhost:8080/orders/42      # {"id":42,"item":"Pizza","status":"DELIVERED"}
-deploy/smoke-test.sh                      # the same check as a script
+curl -i http://localhost:8080/orders/42   # 200, X-Argus-Upstream names the copy that answered
+curl -i http://localhost:8080/payments/1  # 404 {"reason":"ROUTE_NOT_FOUND",...}
+deploy/smoke-test.sh                      # the same checks as a script
 
-# Fault injection on the backend: ok | slow | fail
+# Fault injection on a backend copy: ok | slow | fail  (orders-a is on host port 8081)
 curl -X POST "http://localhost:8081/fault?mode=fail"
+# After three failed health checks (about 15 s) orders-a stops receiving requests.
 ```
+
+| Route | Backend copies | Load balancing |
+|---|---|---|
+| `/orders` | `orders-a` (weight 3), `orders-b` (weight 1) | Weighted 3:1 |
+| `/users` | `users-a`, `users-b` | Least connections |
+| `/products` | `products-v1`, `products-v2` | Round robin, 10% canary to `v2` |
+
+These routes come from the gateway's `demo` profile
+(`argus-gateway/src/main/resources/application-demo.yml`) until the Admin API (M5) supplies them.
 
 Docker Compose profiles add the rest and keep day-to-day development light:
 
 | Profile | Starts | Use for |
 |---|---|---|
-| (none) | `gateway-1`, `orders-service` | Walking skeleton |
+| (none) | `gateway-1` and the six backend copies | Routing demo |
 | `core` | + PostgreSQL, Redis, Kafka | Daily development and integration tests |
 | `full` | + everything: 3 gateways, Nginx, services, upstreams, monitoring | Demos and end-to-end testing (from Milestone 2) |
 
@@ -285,8 +296,8 @@ docker compose -f deploy/docker-compose.yml --profile full down
 
 | Service | URL |
 |---|---|
-| Gateway (walking skeleton, `gateway-1` directly) | http://localhost:8080 |
-| Mock backend `orders-service` | http://localhost:8081 |
+| Gateway (routing demo, `gateway-1` directly) | http://localhost:8080 |
+| Backend copies `orders-a`, `orders-b`, `products-v2` (for `POST /fault`) | http://localhost:8081, :8082, :8083 |
 | Gateway (through Nginx, `full` profile) | http://localhost:8000 |
 | Admin API / Swagger UI | http://localhost:9000/swagger-ui.html |
 | Grafana | http://localhost:3000 |
@@ -302,7 +313,8 @@ Services are configured through environment variables (set in `deploy/docker-com
 | Variable | Used by | Purpose |
 |---|---|---|
 | `ARGUS_INSTANCE_ID` | Gateway | Identifies the instance in events and metrics |
-| `ARGUS_UPSTREAM_URL` | Gateway | Walking skeleton only: the one upstream every request is forwarded to |
+| `SPRING_PROFILES_ACTIVE=demo` | Gateway | Loads the demo routes and backend copies (`argus.routes`, `argus.upstreams`) |
+| `ARGUS_HEALTH_CHECK_*` | Gateway | Active health checks: `ENABLED`, `PATH` (`/health`), `INTERVAL` (5s), `TIMEOUT` (2s), `FAILURE_THRESHOLD` (3) |
 | `SPRING_KAFKA_BOOTSTRAP_SERVERS` | Gateway, Admin, Metering, Abuse | Kafka address |
 | `SPRING_DATA_REDIS_HOST` | Gateway | Redis address for shared rate limits |
 | `SPRING_DATASOURCE_URL` / `_USERNAME` / `_PASSWORD` | Admin, Metering | PostgreSQL connection |
