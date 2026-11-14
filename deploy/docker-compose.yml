@@ -1,23 +1,27 @@
-# Walking skeleton (no profile needed): gateway-1 and orders-service.
-#   docker compose -f deploy/docker-compose.yml up --build
-#   curl http://localhost:8080/orders/42
+# Routing demo (no profile needed): gateway-1 in front of six backend copies.
+#   docker compose -f deploy/docker-compose.yml up --build -d
+#   curl -i http://localhost:8080/orders/42      (see X-Argus-Upstream for the chosen copy)
+#   deploy/smoke-test.sh
 #
 # Profiles:
 #   core - infrastructure for day-to-day development (PostgreSQL, Redis, Kafka)
-#   full - everything: 3 gateways behind Nginx, services, upstreams, monitoring
+#   full - everything: 3 gateways behind Nginx, services, monitoring
 name: argus
 
 x-gateway: &gateway
+  image: argus-gateway
   build: { context: .., dockerfile: deploy/Dockerfile, args: { MODULE: argus-gateway } }
   mem_limit: 512m
   environment: &gateway-env
-    # Walking skeleton: every request is forwarded to this one upstream.
-    ARGUS_UPSTREAM_URL: http://orders-service:8081
+    # Routes and backend copies of the demo: argus-gateway/src/main/resources/application-demo.yml
+    SPRING_PROFILES_ACTIVE: demo
     SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
     SPRING_DATA_REDIS_HOST: redis
     JAVA_TOOL_OPTIONS: -Xmx384m
 
+# One image, run six times; SERVICE_NAME tells each copy who it is.
 x-upstream: &upstream
+  image: argus-mock-service
   build: { context: .., dockerfile: deploy/Dockerfile, args: { MODULE: upstreams/mock-service } }
   mem_limit: 256m
 
@@ -50,12 +54,12 @@ services:
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_HEAP_OPTS: -Xmx512m -Xms512m
 
-  # No profile: part of the walking skeleton. Published on 8080 until Nginx takes that port.
+  # No profile: part of the routing demo. Published on 8080 until Nginx takes that port.
   gateway-1:
     <<: *gateway
     ports: ["8080:8080"]
     environment: { <<: *gateway-env, ARGUS_INSTANCE_ID: gateway-1 }
-    depends_on: [orders-service]
+    depends_on: [orders-a, orders-b, users-a, users-b, products-v1, products-v2]
   gateway-2:
     <<: *gateway
     profiles: [full]
@@ -109,19 +113,30 @@ services:
       JAVA_TOOL_OPTIONS: -Xmx256m
     depends_on: [kafka]
 
-  users-service:
-    <<: *upstream
-    profiles: [full]
-    environment: { SERVICE_NAME: users }
-  # No profile: part of the walking skeleton. Port published so POST /fault can be tried by hand.
-  orders-service:
+  # Backend copies (no profile). Orders: weighted 3:1. Users: least connections.
+  # Products: version v2 is a 10% canary. Host ports are published only so that
+  # POST /fault can be tried by hand: orders-a on 8081, orders-b on 8082, products-v2 on 8083.
+  orders-a:
     <<: *upstream
     ports: ["8081:8081"]
-    environment: { SERVICE_NAME: orders }
-  products-service:
+    environment: { SERVICE_NAME: orders-a }
+  orders-b:
     <<: *upstream
-    profiles: [full]
-    environment: { SERVICE_NAME: products }
+    ports: ["8082:8081"]
+    environment: { SERVICE_NAME: orders-b }
+  users-a:
+    <<: *upstream
+    environment: { SERVICE_NAME: users-a }
+  users-b:
+    <<: *upstream
+    environment: { SERVICE_NAME: users-b }
+  products-v1:
+    <<: *upstream
+    environment: { SERVICE_NAME: products-v1 }
+  products-v2:
+    <<: *upstream
+    ports: ["8083:8081"]
+    environment: { SERVICE_NAME: products-v2 }
 
   prometheus:
     image: prom/prometheus:v2.55.1

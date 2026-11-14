@@ -1,0 +1,23 @@
+# Demo setup for Docker Compose (SPRING_PROFILES_ACTIVE=demo): three services, two copies each.
+# It shows every part of module M1:
+#   /orders    weighted 3:1 between orders-a and orders-b              (FR-02)
+#   /users     least connections between users-a and users-b           (FR-02)
+#   /products  10% canary to version v2, the rest to version v1        (FR-04, UC-08)
+# Host names are the Compose service names.
+argus:
+  upstreams:
+    - { id: orders-a,    service: orders,   url: "http://orders-a:8081",    weight: 3, version: v1 }
+    - { id: orders-b,    service: orders,   url: "http://orders-b:8081",    weight: 1, version: v1 }
+    - { id: users-a,     service: users,    url: "http://users-a:8081",     weight: 1, version: v1 }
+    - { id: users-b,     service: users,    url: "http://users-b:8081",     weight: 1, version: v1 }
+    - { id: products-v1, service: products, url: "http://products-v1:8081", weight: 1, version: v1 }
+    - { id: products-v2, service: products, url: "http://products-v2:8081", weight: 1, version: v2 }
+  routes:
+    - { id: orders,   path-prefix: /orders,   service: orders,   load-balancing: WEIGHTED }
+    - { id: users,    path-prefix: /users,    service: users,    load-balancing: LEAST_CONNECTIONS }
+    - id: products
+      path-prefix: /products
+      service: products
+      load-balancing: ROUND_ROBIN
+      canary-version: v2
+      canary-percent: 10
