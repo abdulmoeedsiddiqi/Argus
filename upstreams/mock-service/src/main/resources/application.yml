@@ -1,5 +1,9 @@
 server:
-  port: ${PORT:9000}
+  port: ${PORT:8081}
+
+mock:
+  # Which copy this is: users, orders, products (orders-a, orders-b, ... later).
+  service-name: ${SERVICE_NAME:mock}
 
 management:
   endpoints:
