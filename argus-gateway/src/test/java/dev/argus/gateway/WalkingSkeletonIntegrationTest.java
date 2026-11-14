@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import dev.argus.mock.MockServiceApplication;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -12,48 +11,41 @@ import java.net.http.HttpResponse;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.SpringBootTest.WebEnvironment;
 import org.springframework.boot.test.web.server.LocalServerPort;
-import org.springframework.boot.web.servlet.context.ServletWebServerApplicationContext;
-import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
 /**
  * Walking skeleton (scope document, Section 7.5): one request travels
- * client -> gateway -> mock-service -> client before any feature is added.
+ * client -> gateway -> mock-service -> client.
  *
  * <p>Both applications are the real ones, each on its own random port, talking over real HTTP.
- * This is the first step towards UC-01; route matching (TC-01.1) and authentication are not
- * part of it yet, so the test claims neither.
+ * The gateway is configured with the smallest possible setup: one route to one backend copy.
  */
 @SpringBootTest(webEnvironment = WebEnvironment.RANDOM_PORT)
 class WalkingSkeletonIntegrationTest {
 
-    /** The real mock backend, started once before the gateway's context is built. */
-    private static final ConfigurableApplicationContext MOCK_SERVICE =
-            new SpringApplicationBuilder(MockServiceApplication.class)
-                    .properties(
-                            "server.port=0",
-                            "mock.service-name=orders",
-                            "spring.application.name=mock-service",
-                            "spring.jmx.enabled=false")
-                    .run();
+    /** The real mock backend, started once before the gateway context is built. */
+    private static final MockBackend ORDERS = MockBackend.start("orders");
 
     @LocalServerPort
     private int gatewayPort;
 
     @DynamicPropertySource
-    static void pointGatewayAtMockService(DynamicPropertyRegistry registry) {
-        int mockPort = ((ServletWebServerApplicationContext) MOCK_SERVICE).getWebServer().getPort();
-        registry.add("argus.upstream.url", () -> "http://127.0.0.1:" + mockPort);
+    static void oneRouteToOneBackend(DynamicPropertyRegistry registry) {
+        registry.add("argus.upstreams[0].id", () -> "orders-1");
+        registry.add("argus.upstreams[0].service", () -> "orders");
+        registry.add("argus.upstreams[0].url", ORDERS::url);
+        registry.add("argus.routes[0].path-prefix", () -> "/orders");
+        registry.add("argus.routes[0].service", () -> "orders");
+        registry.add("argus.health-check.enabled", () -> "false");
     }
 
     @AfterAll
-    static void stopMockService() {
-        MOCK_SERVICE.close();
+    static void stopBackend() {
+        ORDERS.close();
     }
 
     @Test
