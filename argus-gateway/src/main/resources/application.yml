@@ -6,11 +6,16 @@ spring:
     virtual:
       enabled: true
 
+# Routes and backend copies. Empty by default: every request then gets 404 ROUTE_NOT_FOUND.
+# The "demo" profile (application-demo.yml) defines the Users, Orders and Products demo setup.
+# From module M5 on, routes arrive from the Admin API through the configuration topic instead.
 argus:
-  upstream:
-    # Walking skeleton: every request goes to this one upstream (see UpstreamProperties).
-    url: ${ARGUS_UPSTREAM_URL:http://localhost:8081}
-    timeout: 5s
+  health-check:
+    enabled: true
+    path: /health
+    interval: 5s
+    timeout: 2s
+    failure-threshold: 3
 
 management:
   endpoints:

@@ -1,11 +1,18 @@
 package dev.argus.gateway.config;
 
-import dev.argus.core.model.UpstreamInstance;
+import dev.argus.core.loadbalancing.DefaultLoadBalancingStrategyFactory;
+import dev.argus.core.loadbalancing.LoadBalancingStrategyFactory;
 import dev.argus.core.pipeline.FilterChain;
 import dev.argus.core.pipeline.FilterChainFactory;
 import dev.argus.core.pipeline.GatewayFilter;
 import dev.argus.core.resilience.ProxyFilter;
+import dev.argus.core.routing.CanarySelector;
+import dev.argus.core.routing.InMemoryUpstreamRegistry;
+import dev.argus.core.routing.RouteRegistry;
+import dev.argus.core.routing.RoutingFilter;
+import dev.argus.core.routing.SnapshotRouteRegistry;
 import dev.argus.core.routing.UpstreamClient;
+import dev.argus.core.routing.UpstreamRegistry;
 import dev.argus.gateway.upstream.JdkHttpUpstreamClient;
 import java.util.List;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -14,11 +21,11 @@ import org.springframework.context.annotation.Configuration;
 
 /**
  * Composition root of the request pipeline: the one place where core classes are connected to
- * their adapters. The core itself never sees Spring; it only receives its collaborators through
- * constructors (Dependency Inversion).
+ * each other and to their adapters. The core itself never sees Spring; it only receives its
+ * collaborators through constructors (Dependency Inversion).
  */
 @Configuration
-@EnableConfigurationProperties(UpstreamProperties.class)
+@EnableConfigurationProperties(StaticRoutingProperties.class)
 public class PipelineConfiguration {
 
     @Bean
@@ -26,11 +33,36 @@ public class PipelineConfiguration {
         return new JdkHttpUpstreamClient();
     }
 
+    /** Route table, filled from configuration at start-up (until module M5 feeds it). */
     @Bean
-    GatewayFilter proxyFilter(UpstreamClient client, UpstreamProperties upstream) {
-        UpstreamInstance target =
-                new UpstreamInstance("upstream-1", "default", upstream.url(), 1, null);
-        return new ProxyFilter(client, target, upstream.timeout());
+    SnapshotRouteRegistry routeRegistry(StaticRoutingProperties properties) {
+        SnapshotRouteRegistry registry = new SnapshotRouteRegistry();
+        registry.replaceAll(properties.toRoutes());
+        return registry;
+    }
+
+    /** Backend copies, filled from configuration at start-up. */
+    @Bean
+    InMemoryUpstreamRegistry upstreamRegistry(StaticRoutingProperties properties) {
+        InMemoryUpstreamRegistry registry = new InMemoryUpstreamRegistry();
+        registry.replaceAll(properties.toInstances());
+        return registry;
+    }
+
+    @Bean
+    LoadBalancingStrategyFactory loadBalancingStrategyFactory() {
+        return new DefaultLoadBalancingStrategyFactory();
+    }
+
+    @Bean
+    GatewayFilter routingFilter(
+            RouteRegistry routes, UpstreamRegistry upstreams, LoadBalancingStrategyFactory factory) {
+        return new RoutingFilter(routes, upstreams, factory, new CanarySelector());
+    }
+
+    @Bean
+    GatewayFilter proxyFilter(UpstreamClient client) {
+        return new ProxyFilter(client);
     }
 
     /** Every GatewayFilter bean joins the chain; the factory orders them by order(). */

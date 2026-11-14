@@ -25,15 +25,16 @@ final class MockBackend implements AutoCloseable {
 
     /** Starts a copy that calls itself {@code name} (its SERVICE_NAME), for example "orders-a". */
     static MockBackend start(String name) {
+        // Passed as command-line arguments: they win over the gateway's application.yml, which
+        // is on the same test classpath and would otherwise give every copy port 8080.
         ConfigurableApplicationContext context =
                 new SpringApplicationBuilder(MockServiceApplication.class)
-                        .properties(
-                                "server.port=0",
-                                "mock.service-name=" + name,
-                                "mock.slow-delay=3s",
-                                "spring.application.name=" + name,
-                                "spring.jmx.enabled=false")
-                        .run();
+                        .run(
+                                "--server.port=0",
+                                "--mock.service-name=" + name,
+                                "--mock.slow-delay=3s",
+                                "--spring.application.name=" + name,
+                                "--spring.jmx.enabled=false");
         return new MockBackend(name, context);
     }
 

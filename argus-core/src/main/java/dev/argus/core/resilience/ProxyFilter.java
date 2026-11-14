@@ -1,5 +1,6 @@
 package dev.argus.core.resilience;
 
+import dev.argus.core.model.Route;
 import dev.argus.core.model.UpstreamInstance;
 import dev.argus.core.model.UpstreamResponse;
 import dev.argus.core.pipeline.FilterChain;
@@ -7,16 +8,14 @@ import dev.argus.core.pipeline.FilterResult;
 import dev.argus.core.pipeline.GatewayFilter;
 import dev.argus.core.pipeline.RequestContext;
 import dev.argus.core.routing.UpstreamClient;
-import java.time.Duration;
 import java.util.Objects;
 
 /**
- * Last filter of the chain: forwards the request to an upstream instance through the
- * {@link UpstreamClient} port and returns the upstream's response.
+ * Last filter of the chain: sends the request to the instance chosen by the routing filter,
+ * through the {@link UpstreamClient} port, with the timeout of the matched route, and returns
+ * the upstream's response.
  *
- * <p>Walking skeleton: the target instance and timeout are fixed at construction. The circuit
- * breaker, the retry policy and a target chosen per request by the routing filter are added
- * with modules M1 and M4.
+ * <p>The circuit breaker and the retry policy are added here with module M4.
  */
 public final class ProxyFilter implements GatewayFilter {
 
@@ -24,18 +23,18 @@ public final class ProxyFilter implements GatewayFilter {
     public static final int ORDER = 500;
 
     private final UpstreamClient client;
-    private final UpstreamInstance target;
-    private final Duration timeout;
 
-    public ProxyFilter(UpstreamClient client, UpstreamInstance target, Duration timeout) {
+    public ProxyFilter(UpstreamClient client) {
         this.client = Objects.requireNonNull(client, "client");
-        this.target = Objects.requireNonNull(target, "target");
-        this.timeout = Objects.requireNonNull(timeout, "timeout");
     }
 
     @Override
     public FilterResult filter(RequestContext context, FilterChain chain) {
-        UpstreamResponse response = client.send(context.request(), target, timeout);
+        UpstreamInstance target = context.selectedUpstream().orElseThrow(() ->
+                new IllegalStateException("no upstream chosen: the routing filter must run first"));
+        Route route = context.matchedRoute().orElseThrow(() ->
+                new IllegalStateException("no route matched: the routing filter must run first"));
+        UpstreamResponse response = client.send(context.request(), target, route.timeout());
         return new FilterResult.Forwarded(response);
     }
 
