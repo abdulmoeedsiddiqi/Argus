@@ -41,6 +41,15 @@ public class ResourceController {
         return answer(new Product(id, "Sample Product " + id, 9.99));
     }
 
+    /**
+     * Health check target for the gateway. It follows the fault mode like every other answer,
+     * so an injected fault is visible to the gateway's active health checks.
+     */
+    @GetMapping("/health")
+    public ResponseEntity<Object> health() {
+        return answer(Map.of("status", "UP"));
+    }
+
     private ResponseEntity<Object> answer(Object body) {
         FaultMode mode = faultState.current();
         if (mode == FaultMode.FAIL) {

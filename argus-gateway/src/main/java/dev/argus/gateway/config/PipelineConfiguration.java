@@ -7,12 +7,15 @@ import dev.argus.core.pipeline.FilterChainFactory;
 import dev.argus.core.pipeline.GatewayFilter;
 import dev.argus.core.resilience.ProxyFilter;
 import dev.argus.core.routing.CanarySelector;
+import dev.argus.core.routing.HealthChecker;
+import dev.argus.core.routing.HealthProbe;
 import dev.argus.core.routing.InMemoryUpstreamRegistry;
 import dev.argus.core.routing.RouteRegistry;
 import dev.argus.core.routing.RoutingFilter;
 import dev.argus.core.routing.SnapshotRouteRegistry;
 import dev.argus.core.routing.UpstreamClient;
 import dev.argus.core.routing.UpstreamRegistry;
+import dev.argus.gateway.upstream.JdkHttpHealthProbe;
 import dev.argus.gateway.upstream.JdkHttpUpstreamClient;
 import java.util.List;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -47,6 +50,28 @@ public class PipelineConfiguration {
         InMemoryUpstreamRegistry registry = new InMemoryUpstreamRegistry();
         registry.replaceAll(properties.toInstances());
         return registry;
+    }
+
+    @Bean
+    HealthProbe healthProbe(StaticRoutingProperties properties) {
+        StaticRoutingProperties.HealthCheck check = properties.healthCheck();
+        return new JdkHttpHealthProbe(check.path(), check.timeout());
+    }
+
+    /**
+     * Active health checks (FR-03). When enabled, rounds run periodically in the background;
+     * Spring calls stop() on shutdown. Tests disable the schedule and call checkAll() directly.
+     */
+    @Bean(destroyMethod = "stop")
+    HealthChecker healthChecker(
+            InMemoryUpstreamRegistry upstreams, HealthProbe probe, StaticRoutingProperties properties) {
+        StaticRoutingProperties.HealthCheck check = properties.healthCheck();
+        HealthChecker checker = new HealthChecker(
+                upstreams::allInstances, probe, upstreams, check.failureThreshold());
+        if (check.enabled()) {
+            checker.start(check.interval());
+        }
+        return checker;
     }
 
     @Bean
