@@ -8,6 +8,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import dev.argus.core.exception.CircuitOpenException;
+import dev.argus.core.exception.NoHealthyUpstreamException;
+import dev.argus.core.exception.RouteNotFoundException;
+import dev.argus.core.exception.UpstreamTimeoutException;
 import dev.argus.core.model.HttpMethod;
 import dev.argus.core.model.IncomingRequest;
 import dev.argus.core.model.UpstreamResponse;
@@ -95,14 +99,84 @@ class GatewayEntryPointTest {
                 .andExpect(jsonPath("$.message").value("rate limit exceeded"));
     }
 
+    @Test
+    @DisplayName("the response names the backend copy that answered in X-Argus-Upstream")
+    void namesTheBackendCopy() throws Exception {
+        chain.answer = new FilterResult.Forwarded(new UpstreamResponse(
+                200, Map.of(), new byte[0], "orders-a", Duration.ZERO));
+
+        mvc.perform(get("/orders/42"))
+                .andExpect(header().string("X-Argus-Upstream", "orders-a"));
+    }
+
+    @Test
+    @DisplayName("QR-18: an upstream timeout becomes 504 with reason UPSTREAM_TIMEOUT, not a stack trace")
+    void upstreamTimeoutBecomes504() throws Exception {
+        chain.failure = new UpstreamTimeoutException("orders-a did not answer within PT2S", null);
+
+        mvc.perform(get("/orders/42"))
+                .andExpect(status().isGatewayTimeout())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.reason").value("UPSTREAM_TIMEOUT"))
+                .andExpect(jsonPath("$.message").isNotEmpty());
+    }
+
+    @Test
+    @DisplayName("QR-18: an unreachable upstream becomes 503 with reason NO_HEALTHY_UPSTREAM")
+    void unreachableUpstreamBecomes503() throws Exception {
+        chain.failure = new NoHealthyUpstreamException("orders-a could not be reached", null);
+
+        mvc.perform(get("/orders/42"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.reason").value("NO_HEALTHY_UPSTREAM"));
+    }
+
+    @Test
+    @DisplayName("QR-18: an open circuit becomes 503 with reason CIRCUIT_OPEN")
+    void openCircuitBecomes503() throws Exception {
+        chain.failure = new CircuitOpenException("circuit open for orders", null);
+
+        mvc.perform(get("/orders/42"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.reason").value("CIRCUIT_OPEN"));
+    }
+
+    @Test
+    @DisplayName("QR-18: a client rejection thrown as an exception keeps its status and reason")
+    void clientRejectionKeepsItsStatus() throws Exception {
+        chain.failure = new RouteNotFoundException("no route for /payments");
+
+        mvc.perform(get("/payments/1"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.reason").value("ROUTE_NOT_FOUND"));
+    }
+
+    @Test
+    @DisplayName("an unexpected error becomes a plain 500 JSON body without internal details")
+    void unexpectedErrorHidesDetails() throws Exception {
+        chain.failure = new IllegalStateException("secret internal detail");
+
+        mvc.perform(get("/orders/42"))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.reason").value("INTERNAL_ERROR"))
+                .andExpect(content().string(org.hamcrest.Matchers.not(
+                        org.hamcrest.Matchers.containsString("secret internal detail"))));
+    }
+
     /** A chain whose answer the test chooses and whose last input the test can inspect. */
     static final class StubChain implements FilterChain {
         private volatile FilterResult answer;
+        private volatile RuntimeException failure;
         private volatile RequestContext seen;
 
         @Override
         public FilterResult proceed(RequestContext context) {
             seen = context;
+            RuntimeException toThrow = failure;
+            if (toThrow != null) {
+                failure = null;
+                throw toThrow;
+            }
             return answer;
         }
     }
