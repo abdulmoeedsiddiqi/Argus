@@ -242,24 +242,39 @@ Then run `wsl --shutdown` and restart Docker Desktop.
 ```bash
 git clone https://github.com/abdulmoeedsiddiqi/Argus.git
 cd Argus
-mvn -B verify        # compile, run tests and architecture rules, coverage report, style checks
+./mvnw -B verify     # compile, run tests and architecture rules, coverage report, style checks
 ```
+
+The Maven Wrapper (`mvnw`, `mvnw.cmd` on Windows) downloads the pinned Maven version, so only
+JDK 21 has to be installed.
 
 ### Run locally
 
-Docker Compose profiles keep day-to-day development light:
+**Walking skeleton** (one gateway forwarding every request to one mock backend). No profile and
+no manual build are needed; the images compile the code themselves:
+
+```bash
+docker compose -f deploy/docker-compose.yml up --build -d
+curl http://localhost:8080/orders/42      # {"id":42,"item":"Pizza","status":"DELIVERED"}
+deploy/smoke-test.sh                      # the same check as a script
+
+# Fault injection on the backend: ok | slow | fail
+curl -X POST "http://localhost:8081/fault?mode=fail"
+```
+
+Docker Compose profiles add the rest and keep day-to-day development light:
 
 | Profile | Starts | Use for |
 |---|---|---|
-| `core` | PostgreSQL, Redis, Kafka | Daily development and integration tests |
-| `full` | Everything: 3 gateways, Nginx, services, upstreams, monitoring | Demos and end-to-end testing (from Milestone 2) |
+| (none) | `gateway-1`, `orders-service` | Walking skeleton |
+| `core` | + PostgreSQL, Redis, Kafka | Daily development and integration tests |
+| `full` | + everything: 3 gateways, Nginx, services, upstreams, monitoring | Demos and end-to-end testing (from Milestone 2) |
 
 ```bash
 # Infrastructure only
 docker compose -f deploy/docker-compose.yml --profile core up -d
 
 # Full stack
-mvn -B -DskipTests package
 docker compose -f deploy/docker-compose.yml --profile full up -d --build
 
 # Stop everything
@@ -270,8 +285,10 @@ docker compose -f deploy/docker-compose.yml --profile full down
 
 | Service | URL |
 |---|---|
-| Gateway (through Nginx) | http://localhost:8000 |
-| Admin API / Swagger UI | http://localhost:8081/swagger-ui.html |
+| Gateway (walking skeleton, `gateway-1` directly) | http://localhost:8080 |
+| Mock backend `orders-service` | http://localhost:8081 |
+| Gateway (through Nginx, `full` profile) | http://localhost:8000 |
+| Admin API / Swagger UI | http://localhost:9000/swagger-ui.html |
 | Grafana | http://localhost:3000 |
 | Prometheus | http://localhost:9090 |
 | Kafka UI | http://localhost:8090 |
@@ -285,10 +302,11 @@ Services are configured through environment variables (set in `deploy/docker-com
 | Variable | Used by | Purpose |
 |---|---|---|
 | `ARGUS_INSTANCE_ID` | Gateway | Identifies the instance in events and metrics |
+| `ARGUS_UPSTREAM_URL` | Gateway | Walking skeleton only: the one upstream every request is forwarded to |
 | `SPRING_KAFKA_BOOTSTRAP_SERVERS` | Gateway, Admin, Metering, Abuse | Kafka address |
 | `SPRING_DATA_REDIS_HOST` | Gateway | Redis address for shared rate limits |
 | `SPRING_DATASOURCE_URL` / `_USERNAME` / `_PASSWORD` | Admin, Metering | PostgreSQL connection |
-| `PORT` | All services | HTTP port (defaults: gateway 8080, admin 8081, metering 8082, abuse 8083) |
+| `PORT` | All services | HTTP port (defaults: gateway 8080, admin 8081, metering 8082, abuse 8083, mock upstream 8081) |
 | `SERVICE_NAME` | Mock upstream | Runs the mock as `users`, `orders` or `products` |
 
 ---
