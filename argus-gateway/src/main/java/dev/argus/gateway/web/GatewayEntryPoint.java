@@ -35,6 +35,8 @@ public class GatewayEntryPoint {
             "connection", "content-length", "keep-alive", "transfer-encoding",
             "te", "trailer", "upgrade", "proxy-authenticate");
 
+    static final String UPSTREAM_HEADER = "X-Argus-Upstream";
+
     private final FilterChain chain;
 
     public GatewayEntryPoint(FilterChain chain) {
@@ -76,6 +78,10 @@ public class GatewayEntryPoint {
                 headers.addAll(name, values);
             }
         });
+        if (upstream.upstreamInstanceId() != null) {
+            // Shows which backend copy answered, so load balancing can be observed from outside.
+            headers.set(UPSTREAM_HEADER, upstream.upstreamInstanceId());
+        }
         return ResponseEntity.status(upstream.status()).headers(headers).body(upstream.body());
     }
 
@@ -84,7 +90,4 @@ public class GatewayEntryPoint {
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(new RejectionBody(rejected.reason().name(), rejected.message()));
     }
-
-    /** JSON body of every rejection: a machine-readable reason code and a short message. */
-    record RejectionBody(String reason, String message) { }
 }
