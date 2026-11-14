@@ -63,6 +63,34 @@ class FaultInjectionTest {
     }
 
     @Test
+    @DisplayName("GET /health answers 200 UP in normal mode")
+    void healthIsUpInNormalMode() throws Exception {
+        mvc.perform(get("/health"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("UP"));
+    }
+
+    @Test
+    @DisplayName("GET /health answers 500 while mode=fail, so the gateway health check sees the fault")
+    void healthFailsInFailMode() throws Exception {
+        mvc.perform(post("/fault").param("mode", "fail"));
+
+        mvc.perform(get("/health")).andExpect(status().isInternalServerError());
+    }
+
+    @Test
+    @DisplayName("GET /health is delayed while mode=slow")
+    void healthIsSlowInSlowMode() throws Exception {
+        mvc.perform(post("/fault").param("mode", "slow"));
+
+        long start = System.nanoTime();
+        mvc.perform(get("/health")).andExpect(status().isOk());
+        Duration elapsed = Duration.ofNanos(System.nanoTime() - start);
+
+        assertThat(elapsed).isGreaterThanOrEqualTo(Duration.ofMillis(200));
+    }
+
+    @Test
     @DisplayName("an unknown mode is rejected with 400 and the current mode is kept")
     void unknownModeIsRejected() throws Exception {
         mvc.perform(post("/fault").param("mode", "banana")).andExpect(status().isBadRequest());
