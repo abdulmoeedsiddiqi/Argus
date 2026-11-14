@@ -21,7 +21,7 @@ jobs:
           cache: maven
 
       - name: Build, test, coverage and style checks
-        run: mvn -B verify
+        run: ./mvnw -B verify
 
       - name: Upload coverage reports
         if: always()
