@@ -61,7 +61,12 @@
             <artifactId>kafka</artifactId>
             <scope>test</scope>
         </dependency>
-       
+        <!-- The real demo backend, started inside the walking-skeleton integration test. -->
+        <dependency>
+            <groupId>dev.argus</groupId>
+            <artifactId>mock-service</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
