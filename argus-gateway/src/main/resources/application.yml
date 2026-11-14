@@ -6,8 +6,18 @@ spring:
     virtual:
       enabled: true
 
+argus:
+  upstream:
+    # Walking skeleton: every request goes to this one upstream (see UpstreamProperties).
+    url: ${ARGUS_UPSTREAM_URL:http://localhost:8081}
+    timeout: 5s
+
 management:
   endpoints:
     web:
       exposure:
         include: health,info,prometheus
+  health:
+    redis:
+      # Redis is not used until the rate limiter (M3) is built.
+      enabled: false
