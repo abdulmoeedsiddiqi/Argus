@@ -48,6 +48,7 @@ class RoutingIntegrationTest {
         registry.add("argus.routes[0].methods", () -> "GET");
         registry.add("argus.routes[0].load-balancing", () -> "ROUND_ROBIN");
         registry.add("argus.health-check.enabled", () -> "false");
+        TestCredentials.register(registry);
     }
 
     @AfterAll
@@ -102,6 +103,7 @@ class RoutingIntegrationTest {
     private HttpResponse<String> send(String method, String path) throws Exception {
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create("http://127.0.0.1:" + gatewayPort + path))
+                .header(TestCredentials.API_KEY_HEADER, TestCredentials.VALID_KEY)
                 .method(method, HttpRequest.BodyPublishers.noBody())
                 .build();
         return client.send(request, HttpResponse.BodyHandlers.ofString());

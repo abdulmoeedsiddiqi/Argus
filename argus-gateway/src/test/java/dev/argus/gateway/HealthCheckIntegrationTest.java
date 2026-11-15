@@ -53,6 +53,7 @@ class HealthCheckIntegrationTest {
         registry.add("argus.health-check.enabled", () -> "false");
         registry.add("argus.health-check.failure-threshold", () -> "3");
         registry.add("argus.health-check.timeout", () -> "1s");
+        TestCredentials.register(registry);
     }
 
     @AfterAll
@@ -89,6 +90,7 @@ class HealthCheckIntegrationTest {
         for (int i = 0; i < requests; i++) {
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create("http://127.0.0.1:" + gatewayPort + "/orders/" + i))
+                    .header(TestCredentials.API_KEY_HEADER, TestCredentials.VALID_KEY)
                     .GET()
                     .build();
             HttpResponse<String> response =

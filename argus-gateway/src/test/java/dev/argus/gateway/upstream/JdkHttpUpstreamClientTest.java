@@ -82,6 +82,31 @@ class JdkHttpUpstreamClientTest {
     }
 
     @Test
+    @DisplayName("QR-11: the caller's API key and bearer token are not passed on to the backend")
+    void doesNotForwardCredentials() {
+        AtomicReference<String> seenApiKey = new AtomicReference<>("not called");
+        AtomicReference<String> seenAuthorization = new AtomicReference<>("not called");
+        AtomicReference<String> seenOther = new AtomicReference<>();
+        stub.createContext("/", exchange -> {
+            seenApiKey.set(exchange.getRequestHeaders().getFirst("X-API-Key"));
+            seenAuthorization.set(exchange.getRequestHeaders().getFirst("Authorization"));
+            seenOther.set(exchange.getRequestHeaders().getFirst("X-Trace"));
+            respond(exchange, 200, "ok");
+        });
+        IncomingRequest request = request(HttpMethod.GET, "/orders/42",
+                Map.of("x-api-key", List.of("ak_test_shopapp_0123456789"),
+                        "authorization", List.of("Bearer some.signed.token"),
+                        "x-trace", List.of("abc")),
+                null);
+
+        client.send(request, stubInstance, TIMEOUT);
+
+        assertThat(seenApiKey.get()).isNull();
+        assertThat(seenAuthorization.get()).isNull();
+        assertThat(seenOther.get()).isEqualTo("abc");
+    }
+
+    @Test
     @DisplayName("returns the upstream's status, headers and body, and names the instance")
     void returnsTheUpstreamResponse() {
         stub.createContext("/", exchange -> {

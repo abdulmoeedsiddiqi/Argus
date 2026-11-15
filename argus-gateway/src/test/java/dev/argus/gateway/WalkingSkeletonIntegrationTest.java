@@ -41,6 +41,7 @@ class WalkingSkeletonIntegrationTest {
         registry.add("argus.routes[0].path-prefix", () -> "/orders");
         registry.add("argus.routes[0].service", () -> "orders");
         registry.add("argus.health-check.enabled", () -> "false");
+        TestCredentials.register(registry);
     }
 
     @AfterAll
@@ -54,6 +55,7 @@ class WalkingSkeletonIntegrationTest {
         HttpClient client = HttpClient.newHttpClient();
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create("http://127.0.0.1:" + gatewayPort + "/orders/42"))
+                .header(TestCredentials.API_KEY_HEADER, TestCredentials.VALID_KEY)
                 .GET()
                 .build();
 
