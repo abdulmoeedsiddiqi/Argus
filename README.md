@@ -202,7 +202,8 @@ Argus/
 ├── argus-metering/          Usage ledger and quota enforcement (Kafka consumer)
 ├── argus-abuse/             Cross-instance abuse detection (Kafka consumer)
 ├── upstreams/mock-service/  Demo upstream (Users / Orders / Products) with fault injection
-├── deploy/                  Docker Compose, Nginx, Prometheus; Kubernetes manifests (M3)
+├── deploy/                  Docker Compose, Nginx, Prometheus, seed document; Kubernetes manifests (M3)
+├── scripts/                 seed.sh: loads the demo configuration through the Admin API
 ├── docs/
 │   ├── adr/                 Architecture Decision Records
 │   ├── diagrams/            UML sources and rendered diagrams
@@ -250,32 +251,77 @@ JDK 21 has to be installed.
 
 ### Run locally
 
-**Demo** (one gateway in front of six backend copies; authentication, routing and load
-balancing). No profile and no manual build are needed; the images compile the code themselves:
+**Demo**: three gateway instances behind Nginx, PostgreSQL, Kafka (KRaft), the Admin API and six
+backend copies. No profile and no manual build are needed; the images compile the code themselves:
 
 ```bash
 docker compose -f deploy/docker-compose.yml up --build -d
 
+# One command loads the demo configuration through the Admin API (never into the database):
+# plans, backend copies, routes, consumers and their API keys.
+scripts/seed.sh
+
+deploy/smoke-test.sh          # authentication and routing through Nginx (port 8080)
+deploy/propagation-test.sh    # a change reaches all 3 gateways; a restarted gateway catches up
+```
+
+The gateways start with no routes and no keys. Everything they know arrives from the Admin API
+through the compacted Kafka topic `gateway.config`; an instance answers `503 NOT_READY` until it
+has replayed that topic.
+
+```bash
+# The seed script saves the issued demo keys here (the file is ignored by Git):
+source deploy/seed/demo-keys.txt
+
 # Every request needs a credential: an API key ...
-curl -i -H "X-API-Key: ak_demo_shopapp_2026_argus" http://localhost:8080/orders/42   # 200
-curl -i http://localhost:8080/orders/42                                              # 401, no key
-curl -i -H "X-API-Key: ak_demo_revoked_2026_argus" http://localhost:8080/orders/42   # 401, revoked
+curl -i -H "X-API-Key: $SHOP_APP_KEY" http://localhost:8080/orders/42    # 200
+curl -i http://localhost:8080/orders/42                                  # 401, no key
+curl -i -H "X-API-Key: $REVOKED_KEY" http://localhost:8080/orders/42     # 401, revoked
 
 # ... or a signed JWT (the script mints a demo token; "expired" gives one that is too old)
 curl -i -H "Authorization: Bearer $(deploy/demo-jwt.sh)" http://localhost:8080/orders/42          # 200
 curl -i -H "Authorization: Bearer $(deploy/demo-jwt.sh expired)" http://localhost:8080/orders/42  # 401
-
-deploy/smoke-test.sh                      # all of the above and the routing checks, as a script
 
 # Fault injection on a backend copy: ok | slow | fail  (orders-a is on host port 8081)
 curl -X POST "http://localhost:8081/fault?mode=fail"
 # After three failed health checks (about 15 s) orders-a stops receiving requests.
 ```
 
-> **Demo credentials are not secrets.** The two `ak_demo_…` keys and the JWT signing secret in
-> `deploy/docker-compose.yml` exist only so the demo can be tried with `curl`. The gateway
-> itself is configured with the SHA-256 hashes of the keys, never with the keys. A real
-> deployment issues its own keys through the Admin API and supplies its own `ARGUS_JWT_SECRET`.
+**Admin API** (port 9000, [Swagger UI](http://localhost:9000/swagger-ui.html)). Sign in, then send
+the token with every call:
+
+```bash
+TOKEN=$(curl -s -X POST http://localhost:9000/admin/login -H 'Content-Type: application/json' \
+  -d '{"username":"admin","password":"demo-admin-password-not-for-real-use"}' \
+  | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')
+
+# Create a route: all three gateways use it within moments
+curl -X POST http://localhost:9000/admin/routes -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"id":"health","pathPrefix":"/health","serviceId":"orders","timeoutMs":3000}'
+
+# Issue a key (the full key is shown this one time only), then revoke it
+curl -X POST http://localhost:9000/admin/consumers/shop-app/keys -H "Authorization: Bearer $TOKEN"
+curl -X POST http://localhost:9000/admin/keys/<key id>/revoke    -H "Authorization: Bearer $TOKEN"
+
+# Who changed what, and when
+curl http://localhost:9000/admin/audit -H "Authorization: Bearer $TOKEN"
+```
+
+| Admin endpoint | Purpose |
+|---|---|
+| `POST /admin/login` | Sign in; returns the admin token (JWT, valid 1 hour) |
+| `/admin/plans`, `/admin/consumers`, `/admin/routes`, `/admin/upstreams` | Create (`POST`), list and read (`GET`), update (`PUT /{id}`), delete (`DELETE /{id}`) |
+| `POST /admin/consumers/{id}/keys` | Issue an API key; the full key is returned once, only its SHA-256 hash is stored |
+| `POST /admin/keys/{id}/rotate`, `POST /admin/keys/{id}/revoke` | Replace or revoke a key |
+| `GET /admin/audit` | Audit log: actor, action, entity, time |
+| `POST /admin/import` | Apply a YAML document such as `deploy/seed/demo-config.yaml` |
+| `POST /admin/config/republish` | Send the whole current configuration to the gateways again |
+
+> **Demo credentials are not secrets.** The administrator password and the signing secrets in
+> `deploy/docker-compose.yml` exist only so the demo starts with one command; each can be
+> overridden with an environment variable. API keys are generated by the Admin API, shown once,
+> and stored only as SHA-256 hashes. A real deployment supplies its own values.
 
 A 200 answer carries `X-Argus-Upstream` (the backend copy that answered). A refusal is a JSON
 body with a reason code, for example `{"reason":"AUTHENTICATION_FAILED",...}` or
@@ -287,25 +333,15 @@ body with a reason code, for example `{"reason":"AUTHENTICATION_FAILED",...}` or
 | `/users` | `users-a`, `users-b` | Least connections |
 | `/products` | `products-v1`, `products-v2` | Round robin, 10% canary to `v2` |
 
-These routes come from the gateway's `demo` profile
-(`argus-gateway/src/main/resources/application-demo.yml`) until the Admin API (M5) supplies them.
-
-Docker Compose profiles add the rest and keep day-to-day development light:
+These routes are defined in `deploy/seed/demo-config.yaml` and created by `scripts/seed.sh`.
 
 | Profile | Starts | Use for |
 |---|---|---|
-| (none) | `gateway-1` and the six backend copies | Routing demo |
-| `core` | + PostgreSQL, Redis, Kafka | Daily development and integration tests |
-| `full` | + everything: 3 gateways, Nginx, services, upstreams, monitoring | Demos and end-to-end testing (from Milestone 2) |
+| (none) | Nginx, 3 gateways, Admin API, PostgreSQL, Kafka, six backend copies | The demo above |
+| `full` | + Redis, metering, abuse detection, Prometheus, Grafana, Kafka UI | Later modules and monitoring |
 
 ```bash
-# Infrastructure only
-docker compose -f deploy/docker-compose.yml --profile core up -d
-
-# Full stack
-docker compose -f deploy/docker-compose.yml --profile full up -d --build
-
-# Stop everything
+# Stop everything (the configuration is not kept: seed again after the next start)
 docker compose -f deploy/docker-compose.yml --profile full down
 ```
 
@@ -313,13 +349,13 @@ docker compose -f deploy/docker-compose.yml --profile full down
 
 | Service | URL |
 |---|---|
-| Gateway (routing demo, `gateway-1` directly) | http://localhost:8080 |
-| Backend copies `orders-a`, `orders-b`, `products-v2` (for `POST /fault`) | http://localhost:8081, :8082, :8083 |
-| Gateway (through Nginx, `full` profile) | http://localhost:8000 |
+| Gateway, through Nginx (what clients use) | http://localhost:8080 |
+| One gateway instance directly: `gateway-1`, `gateway-2`, `gateway-3` | http://localhost:8091, :8092, :8093 |
 | Admin API / Swagger UI | http://localhost:9000/swagger-ui.html |
-| Grafana | http://localhost:3000 |
-| Prometheus | http://localhost:9090 |
-| Kafka UI | http://localhost:8090 |
+| Backend copies `orders-a`, `orders-b`, `products-v2` (for `POST /fault`) | http://localhost:8081, :8082, :8083 |
+| Grafana (`full` profile) | http://localhost:3000 |
+| Prometheus (`full` profile) | http://localhost:9090 |
+| Kafka UI (`full` profile) | http://localhost:8090 |
 
 ---
 
@@ -330,7 +366,10 @@ Services are configured through environment variables (set in `deploy/docker-com
 | Variable | Used by | Purpose |
 |---|---|---|
 | `ARGUS_INSTANCE_ID` | Gateway | Identifies the instance in events and metrics |
-| `SPRING_PROFILES_ACTIVE=demo` | Gateway | Loads the demo routes and backend copies (`argus.routes`, `argus.upstreams`) |
+| `SPRING_PROFILES_ACTIVE=demo` | Gateway | Demo settings that are not part of the Admin API configuration (JWT issuer) |
+| `ARGUS_CONFIG_SOURCE` | Gateway | `kafka`: routes, backend copies and keys come from the Admin API through `gateway.config`. `static` (default): from the configuration file (`argus.routes`, `argus.upstreams`, `argus.auth.api-keys`) |
+| `ARGUS_ADMIN_USERNAME` / `ARGUS_ADMIN_PASSWORD` | Admin | The administrator who may sign in at `POST /admin/login` |
+| `ARGUS_ADMIN_JWT_SECRET` | Admin | HS256 secret for admin tokens (at least 32 bytes); the Admin API does not start without it |
 | `ARGUS_AUTH_JWT_SECRET` | Gateway | Shared HS256 secret for JWT validation (at least 32 bytes). JWTs are refused when it is not set |
 | `ARGUS_AUTH_JWT_ISSUER` | Gateway | Issuer a JWT must name (`argus-demo` in the demo profile) |
 | `ARGUS_HEALTH_CHECK_*` | Gateway | Active health checks: `ENABLED`, `PATH` (`/health`), `INTERVAL` (5s), `TIMEOUT` (2s), `FAILURE_THRESHOLD` (3) |
@@ -378,11 +417,11 @@ Development is **test-driven**: every feature is built as `test:` → `feat:` �
 - [x] Database schemas (Flyway)
 - [x] Architecture rules (ArchUnit) and CI pipeline
 - [x] Architecture Decision Records and UML diagrams
-- [ ] Filter pipeline and routing with load-balancing strategies
-- [ ] JWT and API-key authentication
+- [x] Filter pipeline and routing with load-balancing strategies
+- [x] JWT and API-key authentication
 - [ ] Local and Redis-backed rate limiting with fallback
 - [ ] Circuit breaker, timeouts and safe retries
-- [ ] Admin API and config propagation through Kafka
+- [x] Admin API and config propagation through Kafka
 - [ ] Metering and quota service
 - [ ] Abuse detection service
 - [ ] Grafana dashboards, Kubernetes manifests, cloud deployment

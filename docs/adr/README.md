@@ -8,5 +8,6 @@
 | [0004](0004-framework-free-core.md) | Keep business logic in a framework-free core (ports and adapters) |
 | [0005](0005-at-least-once-with-idempotent-consumers.md) | At-least-once delivery with idempotent consumers |
 | [0006](0006-virtual-threads-over-reactive.md) | Use Java 21 virtual threads instead of a reactive stack |
+| [0007](0007-publish-config-after-commit.md) | Publish configuration after the database commit, repair by republishing |
 
 New ADRs are numbered sequentially and never deleted; a superseded ADR is marked "Superseded by ADR-xxxx".
