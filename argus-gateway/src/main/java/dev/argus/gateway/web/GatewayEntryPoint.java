@@ -6,6 +6,7 @@ import dev.argus.core.model.UpstreamResponse;
 import dev.argus.core.pipeline.FilterChain;
 import dev.argus.core.pipeline.FilterResult;
 import dev.argus.core.pipeline.RequestContext;
+import dev.argus.gateway.events.ReadinessGate;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.Instant;
 import java.util.Collections;
@@ -38,14 +39,25 @@ public class GatewayEntryPoint {
     static final String UPSTREAM_HEADER = "X-Argus-Upstream";
 
     private final FilterChain chain;
+    private final ReadinessGate readiness;
 
-    public GatewayEntryPoint(FilterChain chain) {
+    public GatewayEntryPoint(FilterChain chain, ReadinessGate readiness) {
         this.chain = chain;
+        this.readiness = readiness;
     }
 
     @RequestMapping("/**")
     public ResponseEntity<?> handle(
             HttpServletRequest servletRequest, @RequestBody(required = false) byte[] body) {
+        if (!readiness.isOpen()) {
+            // QR-09: no request is served before the configuration topic has been replayed.
+            // Nginx sees the 503 and passes the request to another instance.
+            return ResponseEntity.status(503)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .header(HttpHeaders.RETRY_AFTER, "1")
+                    .body(new RejectionBody(
+                            "NOT_READY", "this gateway instance is still loading its configuration"));
+        }
         RequestContext context = RequestContext.of(toIncomingRequest(servletRequest, body));
         return switch (chain.proceed(context)) {
             case FilterResult.Forwarded forwarded -> toResponse(forwarded.response());

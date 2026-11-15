@@ -49,8 +49,8 @@ class RouteConfigApplierTest {
         assertThat(route.loadBalancing()).isEqualTo(LoadBalancingPolicy.WEIGHTED);
         assertThat(route.timeout()).isEqualTo(Duration.ofMillis(2500));
         assertThat(route.retry().maxAttempts()).isEqualTo(3);
-        assertThat(route.canary().version()).isEqualTo("v2");
-        assertThat(route.canary().percent()).isEqualTo(10);
+        assertThat(route.canary().canaryVersion()).isEqualTo("v2");
+        assertThat(route.canary().canaryPercent()).isEqualTo(10);
         assertThat(route.version()).isEqualTo(7);
     }
 
