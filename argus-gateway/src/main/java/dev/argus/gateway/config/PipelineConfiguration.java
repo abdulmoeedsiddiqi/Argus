@@ -1,5 +1,10 @@
 package dev.argus.gateway.config;
 
+import dev.argus.core.auth.ApiKeyAuthenticator;
+import dev.argus.core.auth.ApiKeyHasher;
+import dev.argus.core.auth.ApiKeyStore;
+import dev.argus.core.auth.AuthenticationFilter;
+import dev.argus.core.auth.Authenticator;
 import dev.argus.core.loadbalancing.DefaultLoadBalancingStrategyFactory;
 import dev.argus.core.loadbalancing.LoadBalancingStrategyFactory;
 import dev.argus.core.pipeline.FilterChain;
@@ -15,8 +20,13 @@ import dev.argus.core.routing.RoutingFilter;
 import dev.argus.core.routing.SnapshotRouteRegistry;
 import dev.argus.core.routing.UpstreamClient;
 import dev.argus.core.routing.UpstreamRegistry;
+import dev.argus.core.time.TimeSource;
+import dev.argus.gateway.auth.ApiKeyCache;
+import dev.argus.gateway.auth.JwtAuthenticator;
 import dev.argus.gateway.upstream.JdkHttpHealthProbe;
 import dev.argus.gateway.upstream.JdkHttpUpstreamClient;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -28,7 +38,7 @@ import org.springframework.context.annotation.Configuration;
  * collaborators through constructors (Dependency Inversion).
  */
 @Configuration
-@EnableConfigurationProperties(StaticRoutingProperties.class)
+@EnableConfigurationProperties({StaticRoutingProperties.class, AuthProperties.class})
 public class PipelineConfiguration {
 
     @Bean
@@ -50,6 +60,37 @@ public class PipelineConfiguration {
         InMemoryUpstreamRegistry registry = new InMemoryUpstreamRegistry();
         registry.replaceAll(properties.toInstances());
         return registry;
+    }
+
+    /** The real clock. Tests of time-based logic pass a fixed clock instead. */
+    @Bean
+    TimeSource timeSource() {
+        return TimeSource.system();
+    }
+
+    /** API key records (hashes only), filled from configuration until module M5 feeds them. */
+    @Bean
+    ApiKeyCache apiKeyCache(AuthProperties properties) {
+        ApiKeyCache cache = new ApiKeyCache();
+        cache.replaceAll(properties.toRecords());
+        return cache;
+    }
+
+    /**
+     * Authentication step (module M2). API keys are always accepted; JWTs only when a secret
+     * is configured. The filter sees both through the same Authenticator interface.
+     */
+    @Bean
+    GatewayFilter authenticationFilter(
+            ApiKeyStore apiKeys, AuthProperties properties, TimeSource time) {
+        List<Authenticator> authenticators = new ArrayList<>();
+        authenticators.add(new ApiKeyAuthenticator(apiKeys, new ApiKeyHasher(), time));
+        if (properties.jwtEnabled()) {
+            AuthProperties.Jwt jwt = properties.jwt();
+            authenticators.add(new JwtAuthenticator(
+                    jwt.secret().getBytes(StandardCharsets.UTF_8), jwt.issuer(), time));
+        }
+        return new AuthenticationFilter(authenticators);
     }
 
     @Bean

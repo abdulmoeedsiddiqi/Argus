@@ -33,11 +33,15 @@ public final class JdkHttpUpstreamClient implements UpstreamClient {
     /**
      * Headers that describe one network hop, or that the JDK client sets itself and refuses to
      * accept from callers. They are not copied to the upstream request.
+     *
+     * <p>The caller's credentials (X-API-Key, Authorization) are not copied either: the gateway
+     * has already checked them, and a backend has no reason to see a usable key or token.
      */
     private static final Set<String> NOT_FORWARDED = Set.of(
             "connection", "content-length", "expect", "host", "upgrade",
             "keep-alive", "transfer-encoding", "te", "trailer",
-            "proxy-authenticate", "proxy-authorization");
+            "proxy-authenticate", "proxy-authorization",
+            "x-api-key", "authorization");
 
     private final HttpClient http;
 
