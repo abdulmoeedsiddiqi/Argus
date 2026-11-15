@@ -35,6 +35,8 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <archunit.version>1.3.0</archunit.version>
         <nimbus-jose-jwt.version>9.40</nimbus-jose-jwt.version>
+        <!-- Overrides Spring Boot's 1.21.3, which cannot talk to Docker Engine 29 or newer. -->
+        <testcontainers.version>1.21.4</testcontainers.version>
         <jacoco.version>0.8.12</jacoco.version>
         <checkstyle-plugin.version>3.4.0</checkstyle-plugin.version>
         <!-- Raised to 0.60 once business logic exists (Milestone 3 requirement). -->

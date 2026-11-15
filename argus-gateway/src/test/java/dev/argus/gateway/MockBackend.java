@@ -34,7 +34,10 @@ final class MockBackend implements AutoCloseable {
                                 "--mock.service-name=" + name,
                                 "--mock.slow-delay=3s",
                                 "--spring.application.name=" + name,
-                                "--spring.jmx.enabled=false");
+                                "--spring.jmx.enabled=false",
+                                // The gateway's readiness group names a health check that
+                                // only the gateway has.
+                                "--management.endpoint.health.validate-group-membership=false");
         return new MockBackend(name, context);
     }
 

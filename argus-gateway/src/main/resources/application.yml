@@ -8,8 +8,14 @@ spring:
 
 # Routes and backend copies. Empty by default: every request then gets 404 ROUTE_NOT_FOUND.
 # The "demo" profile (application-demo.yml) defines the Users, Orders and Products demo setup.
-# From module M5 on, routes arrive from the Admin API through the configuration topic instead.
+# With argus.config.source=kafka (module M5) routes, backend copies and API keys arrive from the
+# Admin API through the configuration topic instead, and the instance is not ready until it
+# has replayed that topic (QR-09).
 argus:
+  config:
+    source: ${ARGUS_CONFIG_SOURCE:static}
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    instance-id: ${ARGUS_INSTANCE_ID:gateway}
   health-check:
     enabled: true
     path: /health
@@ -22,6 +28,14 @@ management:
     web:
       exposure:
         include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      group:
+        readiness:
+          # Ready only when Spring is up AND the configuration topic has been replayed.
+          include: readinessState,configReplay
   health:
     redis:
       # Redis is not used until the rate limiter (M3) is built.
