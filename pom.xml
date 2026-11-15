@@ -37,6 +37,7 @@
         <nimbus-jose-jwt.version>9.40</nimbus-jose-jwt.version>
         <!-- Overrides Spring Boot's 1.21.3, which cannot talk to Docker Engine 29 or newer. -->
         <testcontainers.version>1.21.4</testcontainers.version>
+        <springdoc.version>2.8.13</springdoc.version>
         <jacoco.version>0.8.12</jacoco.version>
         <checkstyle-plugin.version>3.4.0</checkstyle-plugin.version>
         <!-- Raised to 0.60 once business logic exists (Milestone 3 requirement). -->
@@ -70,6 +71,11 @@
                 <groupId>com.nimbusds</groupId>
                 <artifactId>nimbus-jose-jwt</artifactId>
                 <version>${nimbus-jose-jwt.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.springdoc</groupId>
+                <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+                <version>${springdoc.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
