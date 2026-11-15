@@ -1,9 +1,11 @@
 package dev.argus.admin.service;
 
 import dev.argus.admin.api.PlanDto;
+import dev.argus.admin.events.ConfigChangeRelay;
 import dev.argus.admin.persistence.ConsumerRepository;
 import dev.argus.admin.persistence.PlanEntity;
 import dev.argus.admin.persistence.PlanRepository;
+import dev.argus.contracts.ConfigChange.EntityType;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -17,11 +19,15 @@ public class PlanService {
     private final PlanRepository plans;
     private final ConsumerRepository consumers;
     private final AuditRecorder audit;
+    private final ConfigChangeRelay relay;
 
-    public PlanService(PlanRepository plans, ConsumerRepository consumers, AuditRecorder audit) {
+    public PlanService(
+            PlanRepository plans, ConsumerRepository consumers, AuditRecorder audit,
+            ConfigChangeRelay relay) {
         this.plans = plans;
         this.consumers = consumers;
         this.audit = audit;
+        this.relay = relay;
     }
 
     @Transactional
@@ -32,7 +38,7 @@ public class PlanService {
         PlanEntity plan = new PlanEntity(request.id());
         apply(request, plan);
         plans.save(plan);
-        audit.record(actor, "CREATE", ENTITY, plan.getId());
+        recordAndPublish(actor, "CREATE", plan);
         return toDto(plan);
     }
 
@@ -40,7 +46,7 @@ public class PlanService {
     public PlanDto update(String id, PlanDto request, String actor) {
         PlanEntity plan = find(id);
         apply(request, plan);
-        audit.record(actor, "UPDATE", ENTITY, id);
+        recordAndPublish(actor, "UPDATE", plan);
         return toDto(plan);
     }
 
@@ -51,7 +57,8 @@ public class PlanService {
             throw new ResourceConflictException("plan " + id + " is still used by consumers");
         }
         plans.delete(plan);
-        audit.record(actor, "DELETE", ENTITY, id);
+        long version = audit.record(actor, "DELETE", ENTITY, id);
+        relay.afterCommit(EntityType.PLAN, id, version, null);
     }
 
     @Transactional(readOnly = true)
@@ -62,6 +69,12 @@ public class PlanService {
     @Transactional(readOnly = true)
     public List<PlanDto> list() {
         return plans.findAll().stream().map(PlanService::toDto).toList();
+    }
+
+    /** Writes the audit record and schedules the change for the gateways. */
+    private void recordAndPublish(String actor, String action, PlanEntity plan) {
+        long version = audit.record(actor, action, ENTITY, plan.getId());
+        relay.afterCommit(EntityType.PLAN, plan.getId(), version, ConfigPayloads.plan(plan));
     }
 
     private PlanEntity find(String id) {

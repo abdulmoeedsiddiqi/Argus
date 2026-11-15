@@ -1,8 +1,10 @@
 package dev.argus.admin.service;
 
 import dev.argus.admin.api.RouteDto;
+import dev.argus.admin.events.ConfigChangeRelay;
 import dev.argus.admin.persistence.RouteEntity;
 import dev.argus.admin.persistence.RouteRepository;
+import dev.argus.contracts.ConfigChange.EntityType;
 import dev.argus.core.exception.InvalidConfigurationException;
 import dev.argus.core.model.HttpMethod;
 import dev.argus.core.model.LoadBalancingPolicy;
@@ -21,10 +23,12 @@ public class RouteService {
 
     private final RouteRepository routes;
     private final AuditRecorder audit;
+    private final ConfigChangeRelay relay;
 
-    public RouteService(RouteRepository routes, AuditRecorder audit) {
+    public RouteService(RouteRepository routes, AuditRecorder audit, ConfigChangeRelay relay) {
         this.routes = routes;
         this.audit = audit;
+        this.relay = relay;
     }
 
     @Transactional
@@ -35,7 +39,7 @@ public class RouteService {
         RouteEntity route = new RouteEntity(request.id());
         apply(request, route);
         routes.save(route);
-        audit.record(actor, "CREATE", ENTITY, route.getId());
+        recordAndPublish(actor, "CREATE", route);
         return toDto(route);
     }
 
@@ -43,14 +47,15 @@ public class RouteService {
     public RouteDto update(String id, RouteDto request, String actor) {
         RouteEntity route = find(id);
         apply(request, route);
-        audit.record(actor, "UPDATE", ENTITY, id);
+        recordAndPublish(actor, "UPDATE", route);
         return toDto(route);
     }
 
     @Transactional
     public void delete(String id, String actor) {
         routes.delete(find(id));
-        audit.record(actor, "DELETE", ENTITY, id);
+        long version = audit.record(actor, "DELETE", ENTITY, id);
+        relay.afterCommit(EntityType.ROUTE, id, version, null);
     }
 
     @Transactional(readOnly = true)
@@ -61,6 +66,12 @@ public class RouteService {
     @Transactional(readOnly = true)
     public List<RouteDto> list() {
         return routes.findAll().stream().map(RouteService::toDto).toList();
+    }
+
+    /** Writes the audit record and schedules the change for the gateways. */
+    private void recordAndPublish(String actor, String action, RouteEntity route) {
+        long version = audit.record(actor, action, ENTITY, route.getId());
+        relay.afterCommit(EntityType.ROUTE, route.getId(), version, ConfigPayloads.route(route));
     }
 
     private RouteEntity find(String id) {

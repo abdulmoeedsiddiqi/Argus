@@ -14,6 +14,18 @@ spring:
     open-in-view: false
   kafka:
     bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    admin:
+      # Without Kafka the configuration topic cannot be created: stop instead of starting broken.
+      fail-fast: true
+    producer:
+      # A change counts as sent only when the broker has stored it; retries cannot duplicate it.
+      acks: all
+      properties:
+        enable.idempotence: true
+        # Give up after 8 s, so a Kafka outage becomes a clear 503 instead of a hanging request.
+        max.block.ms: 5000
+        request.timeout.ms: 4000
+        delivery.timeout.ms: 8000
 
 # Admin sign-in. The values come from the environment; there are no defaults, so the service
 # does not start with a missing or short secret.

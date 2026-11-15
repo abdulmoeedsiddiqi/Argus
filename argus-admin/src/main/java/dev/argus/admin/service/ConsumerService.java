@@ -1,10 +1,13 @@
 package dev.argus.admin.service;
 
 import dev.argus.admin.api.ConsumerDto;
+import dev.argus.admin.events.ConfigChangeRelay;
+import dev.argus.admin.persistence.ApiKeyEntity;
 import dev.argus.admin.persistence.ApiKeyRepository;
 import dev.argus.admin.persistence.ConsumerEntity;
 import dev.argus.admin.persistence.ConsumerRepository;
 import dev.argus.admin.persistence.PlanRepository;
+import dev.argus.contracts.ConfigChange.EntityType;
 import dev.argus.core.exception.InvalidConfigurationException;
 import java.time.Clock;
 import java.util.List;
@@ -21,15 +24,17 @@ public class ConsumerService {
     private final PlanRepository plans;
     private final ApiKeyRepository keys;
     private final AuditRecorder audit;
+    private final ConfigChangeRelay relay;
     private final Clock clock;
 
     public ConsumerService(
             ConsumerRepository consumers, PlanRepository plans, ApiKeyRepository keys,
-            AuditRecorder audit, Clock clock) {
+            AuditRecorder audit, ConfigChangeRelay relay, Clock clock) {
         this.consumers = consumers;
         this.plans = plans;
         this.keys = keys;
         this.audit = audit;
+        this.relay = relay;
         this.clock = clock;
     }
 
@@ -50,8 +55,17 @@ public class ConsumerService {
     public ConsumerDto update(String id, ConsumerDto request, String actor) {
         ConsumerEntity consumer = find(id);
         requirePlan(request.planId());
+        boolean planChanged = !request.planId().equals(consumer.getPlanId());
         consumer.update(request.name(), request.planId());
-        audit.record(actor, "UPDATE", ENTITY, id);
+        long version = audit.record(actor, "UPDATE", ENTITY, id);
+        if (planChanged) {
+            // The gateways know a consumer only through its keys, and each key carries the plan:
+            // send the keys again so that every instance sees the new plan.
+            for (ApiKeyEntity key : keys.findByConsumerIdOrderByCreatedAtAsc(id)) {
+                relay.afterCommit(EntityType.API_KEY, key.getId(), version,
+                        ConfigPayloads.apiKey(key, request.planId()));
+            }
+        }
         return toDto(consumer);
     }
 

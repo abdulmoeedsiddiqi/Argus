@@ -1,8 +1,10 @@
 package dev.argus.admin.service;
 
 import dev.argus.admin.api.UpstreamDto;
+import dev.argus.admin.events.ConfigChangeRelay;
 import dev.argus.admin.persistence.UpstreamInstanceEntity;
 import dev.argus.admin.persistence.UpstreamInstanceRepository;
+import dev.argus.contracts.ConfigChange.EntityType;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -15,10 +17,13 @@ public class UpstreamService {
 
     private final UpstreamInstanceRepository upstreams;
     private final AuditRecorder audit;
+    private final ConfigChangeRelay relay;
 
-    public UpstreamService(UpstreamInstanceRepository upstreams, AuditRecorder audit) {
+    public UpstreamService(
+            UpstreamInstanceRepository upstreams, AuditRecorder audit, ConfigChangeRelay relay) {
         this.upstreams = upstreams;
         this.audit = audit;
+        this.relay = relay;
     }
 
     @Transactional
@@ -29,7 +34,7 @@ public class UpstreamService {
         UpstreamInstanceEntity upstream = new UpstreamInstanceEntity(request.id());
         apply(request, upstream);
         upstreams.save(upstream);
-        audit.record(actor, "CREATE", ENTITY, upstream.getId());
+        recordAndPublish(actor, "CREATE", upstream);
         return toDto(upstream);
     }
 
@@ -37,14 +42,15 @@ public class UpstreamService {
     public UpstreamDto update(String id, UpstreamDto request, String actor) {
         UpstreamInstanceEntity upstream = find(id);
         apply(request, upstream);
-        audit.record(actor, "UPDATE", ENTITY, id);
+        recordAndPublish(actor, "UPDATE", upstream);
         return toDto(upstream);
     }
 
     @Transactional
     public void delete(String id, String actor) {
         upstreams.delete(find(id));
-        audit.record(actor, "DELETE", ENTITY, id);
+        long version = audit.record(actor, "DELETE", ENTITY, id);
+        relay.afterCommit(EntityType.UPSTREAM, id, version, null);
     }
 
     @Transactional(readOnly = true)
@@ -55,6 +61,13 @@ public class UpstreamService {
     @Transactional(readOnly = true)
     public List<UpstreamDto> list() {
         return upstreams.findAll().stream().map(UpstreamService::toDto).toList();
+    }
+
+    /** Writes the audit record and schedules the change for the gateways. */
+    private void recordAndPublish(String actor, String action, UpstreamInstanceEntity upstream) {
+        long version = audit.record(actor, action, ENTITY, upstream.getId());
+        relay.afterCommit(
+                EntityType.UPSTREAM, upstream.getId(), version, ConfigPayloads.upstream(upstream));
     }
 
     private UpstreamInstanceEntity find(String id) {

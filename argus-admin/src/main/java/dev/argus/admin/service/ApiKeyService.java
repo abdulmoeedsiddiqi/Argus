@@ -2,9 +2,12 @@ package dev.argus.admin.service;
 
 import dev.argus.admin.api.ApiKeyDto;
 import dev.argus.admin.api.IssuedKeyDto;
+import dev.argus.admin.events.ConfigChangeRelay;
 import dev.argus.admin.persistence.ApiKeyEntity;
 import dev.argus.admin.persistence.ApiKeyRepository;
+import dev.argus.admin.persistence.ConsumerEntity;
 import dev.argus.admin.persistence.ConsumerRepository;
+import dev.argus.contracts.ConfigChange.EntityType;
 import dev.argus.core.auth.ApiKeyHasher;
 import java.time.Clock;
 import java.time.Instant;
@@ -28,30 +31,31 @@ public class ApiKeyService {
     private final ApiKeyGenerator generator;
     private final ApiKeyHasher hasher;
     private final AuditRecorder audit;
+    private final ConfigChangeRelay relay;
     private final Clock clock;
 
     public ApiKeyService(
             ApiKeyRepository keys, ConsumerRepository consumers, ApiKeyGenerator generator,
-            ApiKeyHasher hasher, AuditRecorder audit, Clock clock) {
+            ApiKeyHasher hasher, AuditRecorder audit, ConfigChangeRelay relay, Clock clock) {
         this.keys = keys;
         this.consumers = consumers;
         this.generator = generator;
         this.hasher = hasher;
         this.audit = audit;
+        this.relay = relay;
         this.clock = clock;
     }
 
     /** Creates a key for a consumer and returns it in full, this one time only. */
     @Transactional
     public IssuedKeyDto issue(String consumerId, Instant expiresAt, String actor) {
-        if (!consumers.existsById(consumerId)) {
-            throw new ResourceNotFoundException("consumer", consumerId);
-        }
+        ConsumerEntity consumer = consumers.findById(consumerId)
+                .orElseThrow(() -> new ResourceNotFoundException("consumer", consumerId));
         String key = generator.newKey();
         ApiKeyEntity entity = keys.save(new ApiKeyEntity(
                 generator.newKeyId(), consumerId, hasher.hash(key), generator.prefixOf(key),
                 expiresAt, clock.instant()));
-        audit.record(actor, "ISSUE", ENTITY, entity.getId());
+        recordAndPublish(actor, "ISSUE", entity, consumer.getPlanId());
         return new IssuedKeyDto(
                 entity.getId(), key, entity.getConsumerId(), entity.getKeyPrefix(),
                 entity.isRevoked(), entity.getExpiresAt(), entity.getCreatedAt());
@@ -63,7 +67,7 @@ public class ApiKeyService {
         ApiKeyEntity key = find(keyId);
         if (!key.isRevoked()) {
             key.revoke();
-            audit.record(actor, "REVOKE", ENTITY, keyId);
+            recordAndPublish(actor, "REVOKE", key, planOf(key));
         }
         return toDto(key);
     }
@@ -81,7 +85,7 @@ public class ApiKeyService {
         }
         IssuedKeyDto replacement = issue(old.getConsumerId(), old.getExpiresAt(), actor);
         old.revoke();
-        audit.record(actor, "ROTATE", ENTITY, keyId);
+        recordAndPublish(actor, "ROTATE", old, planOf(old));
         return replacement;
     }
 
@@ -102,6 +106,17 @@ public class ApiKeyService {
         }
         return keys.findByConsumerIdOrderByCreatedAtAsc(consumerId).stream()
                 .map(ApiKeyService::toDto).toList();
+    }
+
+    /** Writes the audit record and schedules the key (hash and metadata) for the gateways. */
+    private void recordAndPublish(String actor, String action, ApiKeyEntity key, String planId) {
+        long version = audit.record(actor, action, ENTITY, key.getId());
+        relay.afterCommit(
+                EntityType.API_KEY, key.getId(), version, ConfigPayloads.apiKey(key, planId));
+    }
+
+    private String planOf(ApiKeyEntity key) {
+        return consumers.findById(key.getConsumerId()).orElseThrow().getPlanId();
     }
 
     private ApiKeyEntity find(String keyId) {

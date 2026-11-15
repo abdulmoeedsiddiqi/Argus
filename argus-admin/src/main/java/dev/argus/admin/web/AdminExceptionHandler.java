@@ -1,6 +1,7 @@
 package dev.argus.admin.web;
 
 import dev.argus.admin.api.ErrorBody;
+import dev.argus.admin.events.ConfigNotPropagatedException;
 import dev.argus.admin.service.ResourceConflictException;
 import dev.argus.admin.service.ResourceNotFoundException;
 import dev.argus.core.exception.InvalidConfigurationException;
@@ -66,6 +67,15 @@ public class AdminExceptionHandler {
     ResponseEntity<ErrorBody> onConstraintViolation(DataIntegrityViolationException violation) {
         LOG.warn("the database rejected a change: {}", violation.getMostSpecificCause().getMessage());
         return answer(409, ErrorBody.of("CONFLICT", "the change conflicts with the stored data"));
+    }
+
+    /** The change is in the database, but Kafka did not take it: say so plainly (503). */
+    @ExceptionHandler(ConfigNotPropagatedException.class)
+    ResponseEntity<ErrorBody> onNotPropagated(ConfigNotPropagatedException failure) {
+        LOG.error("a committed change was not published: {}", failure.getMessage());
+        return answer(503, ErrorBody.of("NOT_PROPAGATED",
+                "the change is saved but has not reached the gateways yet;"
+                        + " call POST /admin/config/republish once Kafka is reachable"));
     }
 
     /** Anything else: Spring's own HTTP errors keep their status; the rest is a plain 500. */

@@ -1,5 +1,6 @@
 package dev.argus.admin.config;
 
+import dev.argus.contracts.Topics;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -12,13 +13,15 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  * @param password   the administrator's password
  * @param jwtSecret  HS256 signing secret for admin tokens, at least 32 bytes
  * @param tokenTtl   how long a token stays valid after sign-in
+ * @param configTopic name of the compacted Kafka topic that carries configuration changes
  */
 @ConfigurationProperties("argus.admin")
 public record AdminProperties(
         String username,
         String password,
         String jwtSecret,
-        @DefaultValue("1h") Duration tokenTtl) {
+        @DefaultValue("1h") Duration tokenTtl,
+        @DefaultValue(Topics.CONFIG) String configTopic) {
 
     private static final int MIN_SECRET_BYTES = 32;
 
@@ -44,6 +47,6 @@ public record AdminProperties(
     @Override
     public String toString() {
         return "AdminProperties[username=" + username + ", password=<hidden>, jwtSecret=<hidden>,"
-                + " tokenTtl=" + tokenTtl + "]";
+                + " tokenTtl=" + tokenTtl + ", configTopic=" + configTopic + "]";
     }
 }
