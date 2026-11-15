@@ -8,3 +8,6 @@ target/
 .env
 deploy/data/
 spill/
+
+# Demo API keys issued by scripts/seed.sh (local values, never committed)
+deploy/seed/demo-keys.txt

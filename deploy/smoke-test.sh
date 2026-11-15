@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
-# Smoke test of the demo: client -> gateway (authentication, routing) -> backend copy -> client.
-# Usage: deploy/smoke-test.sh [gateway-url]     (default http://localhost:8080)
+# Smoke test of the demo: client -> Nginx -> gateway (authentication, routing) -> backend copy.
+# Run scripts/seed.sh first; it issues the demo keys this script uses.
+# Usage: deploy/smoke-test.sh [gateway-url]     (default http://localhost:8080, through Nginx)
 set -euo pipefail
 
 GATEWAY_URL="${1:-http://localhost:8080}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# Demo credentials (not real secrets); see the README.
-DEMO_KEY="ak_demo_shopapp_2026_argus"
-REVOKED_KEY="ak_demo_revoked_2026_argus"
+# shellcheck source=admin-lib.sh
+source "${HERE}/admin-lib.sh"
+load_demo_keys
+DEMO_KEY="${SHOP_APP_KEY}"
 failures=0
 
 check() {
@@ -26,12 +28,12 @@ call() {
     | awk '{ status = $NF; $NF = ""; print status " " $0 }'
 }
 
-# FR-06: API keys.
+# FR-06: API keys (issued through the Admin API, known to the gateways through Kafka).
 check "valid X-API-Key returns 200 and order 42" '200 {"id":42' \
   "$(call -H "X-API-Key: ${DEMO_KEY}" "${GATEWAY_URL}/orders/42")"
 check "missing key is refused with 401" '401 ' "$(call "${GATEWAY_URL}/orders/42")"
 check "wrong key is refused with 401" '401 ' \
-  "$(call -H "X-API-Key: ak_demo_wrong_key" "${GATEWAY_URL}/orders/42")"
+  "$(call -H "X-API-Key: ak_live_wrong_key" "${GATEWAY_URL}/orders/42")"
 check "revoked key is refused with 401" '401 ' \
   "$(call -H "X-API-Key: ${REVOKED_KEY}" "${GATEWAY_URL}/orders/42")"
 check "refusals carry the reason code" 'AUTHENTICATION_FAILED' "$(call "${GATEWAY_URL}/orders/42")"

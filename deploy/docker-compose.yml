@@ -1,26 +1,43 @@
-# Routing demo (no profile needed): gateway-1 in front of six backend copies.
-#   docker compose -f deploy/docker-compose.yml up --build -d
-#   curl -i http://localhost:8080/orders/42      (see X-Argus-Upstream for the chosen copy)
-#   deploy/smoke-test.sh
+# Argus demo stack (no profile needed):
 #
-# Profiles:
-#   core - infrastructure for day-to-day development (PostgreSQL, Redis, Kafka)
-#   full - everything: 3 gateways behind Nginx, services, monitoring
+#   client -> Nginx :8080 -> gateway-1..3 -> backend copies
+#   admin  -> Admin API :9000 -> PostgreSQL, and -> Kafka (gateway.config) -> gateway-1..3
+#
+#   docker compose -f deploy/docker-compose.yml up --build -d
+#   scripts/seed.sh                 load the demo configuration through the Admin API
+#   deploy/smoke-test.sh            check authentication and routing through Nginx
+#   deploy/propagation-test.sh      check that changes reach all three gateways (FR-12, QR-09)
+#
+# Profile:
+#   full - adds the services of later modules and the monitoring tools
+#
+# All passwords and secrets below are demo values, written here so that the demo starts with
+# one command. They are NOT real secrets; a real deployment supplies its own from a secret
+# store (each one can be overridden with an environment variable).
 name: argus
 
 x-gateway: &gateway
   image: argus-gateway
   build: { context: .., dockerfile: deploy/Dockerfile, args: { MODULE: argus-gateway } }
   mem_limit: 512m
+  depends_on:
+    kafka: { condition: service_healthy }
+  # "Healthy" means ready: the configuration topic has been replayed (QR-09).
+  healthcheck:
+    test: ["CMD-SHELL", "curl -fsS http://localhost:8080/actuator/health/readiness > /dev/null"]
+    interval: 5s
+    timeout: 3s
+    retries: 24
+    start_period: 20s
   environment: &gateway-env
-    # Routes and backend copies of the demo: argus-gateway/src/main/resources/application-demo.yml
     SPRING_PROFILES_ACTIVE: demo
-    # Demo-only signing secret for JWTs (at least 32 bytes). Never use it outside the demo;
-    # a real deployment supplies its own value from a secret store. Override with ARGUS_JWT_SECRET.
-    ARGUS_AUTH_JWT_SECRET: ${ARGUS_JWT_SECRET:-demo-only-jwt-secret-not-for-real-use-0123456789}
+    # Routes, backend copies and API keys come from the Admin API through Kafka.
+    ARGUS_CONFIG_SOURCE: kafka
     SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    # Demo-only signing secret for client JWTs (at least 32 bytes).
+    ARGUS_AUTH_JWT_SECRET: ${ARGUS_JWT_SECRET:-demo-only-jwt-secret-not-for-real-use-0123456789}
     SPRING_DATA_REDIS_HOST: redis
-    JAVA_TOOL_OPTIONS: -Xmx384m
+    JAVA_TOOL_OPTIONS: -Xmx256m
 
 # One image, run six times; SERVICE_NAME tells each copy who it is.
 x-upstream: &upstream
@@ -31,21 +48,22 @@ x-upstream: &upstream
 services:
   postgres:
     image: postgres:16
-    profiles: [core, full]
+    mem_limit: 256m
     environment:
       POSTGRES_DB: argus
       POSTGRES_USER: argus
       POSTGRES_PASSWORD: argus
     ports: ["5432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U argus -d argus"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
 
-  redis:
-    image: redis:7
-    profiles: [core, full]
-    ports: ["6379:6379"]
-
+  # Kafka in KRaft mode: one node that is both broker and controller, no ZooKeeper.
   kafka:
     image: apache/kafka:3.9.1
-    profiles: [core, full]
+    mem_limit: 1g
     ports: ["9092:9092"]
     environment:
       KAFKA_NODE_ID: 1
@@ -55,45 +73,69 @@ services:
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_HEAP_OPTS: -Xmx512m -Xms512m
+      KAFKA_HEAP_OPTS: -Xmx384m -Xms384m
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1"]
+      interval: 5s
+      timeout: 10s
+      retries: 20
+      start_period: 10s
 
-  # No profile: part of the routing demo. Published on 8080 until Nginx takes that port.
-  gateway-1:
-    <<: *gateway
-    ports: ["8080:8080"]
-    environment: { <<: *gateway-env, ARGUS_INSTANCE_ID: gateway-1 }
-    depends_on: [orders-a, orders-b, users-a, users-b, products-v1, products-v2]
-  gateway-2:
-    <<: *gateway
+  redis:
+    image: redis:7
     profiles: [full]
-    environment: { <<: *gateway-env, ARGUS_INSTANCE_ID: gateway-2 }
-    depends_on: [kafka, redis]
-  gateway-3:
-    <<: *gateway
-    profiles: [full]
-    environment: { <<: *gateway-env, ARGUS_INSTANCE_ID: gateway-3 }
-    depends_on: [kafka, redis]
+    ports: ["6379:6379"]
 
-  nginx:
-    image: nginx:1.27
-    profiles: [full]
-    ports: ["8000:80"]
-    volumes: ["./nginx.conf:/etc/nginx/nginx.conf:ro"]
-    depends_on: [gateway-1, gateway-2, gateway-3]
-
+  # Admin API on host port 9000 (scope document, Section 7.2). Swagger UI:
+  # http://localhost:9000/swagger-ui.html
   admin:
+    image: argus-admin
     build: { context: .., dockerfile: deploy/Dockerfile, args: { MODULE: argus-admin } }
-    profiles: [full]
-    mem_limit: 384m
-    # Admin API on host port 9000 (scope document, Section 7.2); 8081 belongs to the backends.
+    mem_limit: 512m
     ports: ["9000:8081"]
+    restart: on-failure
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/argus
       SPRING_DATASOURCE_USERNAME: argus
       SPRING_DATASOURCE_PASSWORD: argus
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      # Demo administrator (not real credentials).
+      ARGUS_ADMIN_USERNAME: ${ARGUS_ADMIN_USERNAME:-admin}
+      ARGUS_ADMIN_PASSWORD: ${ARGUS_ADMIN_PASSWORD:-demo-admin-password-not-for-real-use}
+      ARGUS_ADMIN_JWT_SECRET: ${ARGUS_ADMIN_JWT_SECRET:-demo-only-admin-jwt-secret-not-for-real-use-01234}
       JAVA_TOOL_OPTIONS: -Xmx256m
-    depends_on: [postgres, kafka]
+    depends_on:
+      postgres: { condition: service_healthy }
+      kafka: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8081/actuator/health > /dev/null"]
+      interval: 5s
+      timeout: 3s
+      retries: 24
+      start_period: 20s
+
+  # Three identical gateway instances. Clients use Nginx on 8080; the ports 8091 to 8093 exist
+  # only so that the demo can ask one specific instance.
+  gateway-1:
+    <<: *gateway
+    ports: ["8091:8080"]
+    environment: { <<: *gateway-env, ARGUS_INSTANCE_ID: gateway-1 }
+  gateway-2:
+    <<: *gateway
+    ports: ["8092:8080"]
+    environment: { <<: *gateway-env, ARGUS_INSTANCE_ID: gateway-2 }
+  gateway-3:
+    <<: *gateway
+    ports: ["8093:8080"]
+    environment: { <<: *gateway-env, ARGUS_INSTANCE_ID: gateway-3 }
+
+  # Single entry point for clients (port 8080), spreading traffic over the three gateways.
+  nginx:
+    image: nginx:1.27
+    mem_limit: 64m
+    ports: ["8080:80"]
+    volumes: ["./nginx.conf:/etc/nginx/nginx.conf:ro"]
+    depends_on: [gateway-1, gateway-2, gateway-3]
 
   metering:
     build: { context: .., dockerfile: deploy/Dockerfile, args: { MODULE: argus-metering } }
@@ -116,9 +158,9 @@ services:
       JAVA_TOOL_OPTIONS: -Xmx256m
     depends_on: [kafka]
 
-  # Backend copies (no profile). Orders: weighted 3:1. Users: least connections.
-  # Products: version v2 is a 10% canary. Host ports are published only so that
-  # POST /fault can be tried by hand: orders-a on 8081, orders-b on 8082, products-v2 on 8083.
+  # Backend copies. Which route uses which copy is configured through the Admin API
+  # (deploy/seed/demo-config.yaml). Host ports are published only so that POST /fault can be
+  # tried by hand: orders-a on 8081, orders-b on 8082, products-v2 on 8083.
   orders-a:
     <<: *upstream
     ports: ["8081:8081"]
