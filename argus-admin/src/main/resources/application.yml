@@ -1,6 +1,29 @@
 server:
   port: ${PORT:8081}
 
+spring:
+  application:
+    name: argus-admin
+  # The database address and credentials come from the environment
+  # (SPRING_DATASOURCE_URL, SPRING_DATASOURCE_USERNAME, SPRING_DATASOURCE_PASSWORD).
+  jpa:
+    # The schema is owned by the Flyway migrations (db/migration); Hibernate only checks
+    # that the entity classes match it.
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  kafka:
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+
+# Admin sign-in. The values come from the environment; there are no defaults, so the service
+# does not start with a missing or short secret.
+argus:
+  admin:
+    username: ${ARGUS_ADMIN_USERNAME:}
+    password: ${ARGUS_ADMIN_PASSWORD:}
+    jwt-secret: ${ARGUS_ADMIN_JWT_SECRET:}
+    token-ttl: 1h
+
 management:
   endpoints:
     web:
