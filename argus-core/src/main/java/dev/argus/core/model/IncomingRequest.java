@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Immutable view of an HTTP request as it arrived at the gateway.
@@ -30,5 +31,18 @@ public record IncomingRequest(
     @Override
     public byte[] body() {
         return body.clone();
+    }
+
+    /**
+     * First value of a header, looked up without regard to case (HTTP header names are
+     * case-insensitive). Empty if the header is absent.
+     */
+    public Optional<String> header(String name) {
+        for (Map.Entry<String, List<String>> entry : headers.entrySet()) {
+            if (entry.getKey().equalsIgnoreCase(name) && !entry.getValue().isEmpty()) {
+                return Optional.of(entry.getValue().get(0));
+            }
+        }
+        return Optional.empty();
     }
 }
