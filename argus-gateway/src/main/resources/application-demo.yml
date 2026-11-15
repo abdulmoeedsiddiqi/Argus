@@ -21,3 +21,25 @@ argus:
       load-balancing: ROUND_ROBIN
       canary-version: v2
       canary-percent: 10
+
+  # Demo credentials (FR-05, FR-06). These are NOT real secrets: they exist only so that the
+  # demo can be tried with curl. Only the SHA-256 hash of each key is configured here; the
+  # plaintext demo keys are written in the README. The JWT secret is not in this file: the
+  # gateway reads it from the environment variable ARGUS_AUTH_JWT_SECRET.
+  auth:
+    api-keys:
+      # Demo key of the "Shop App" consumer on the Free plan.
+      - id: key-shop-app
+        key-hash: 8b6e8f9c6d8c4f06f71d4c0753e63f48dff4b2c02e6cd64d93aef8b7ace135e3
+        display-prefix: ak_demo_shop
+        consumer: shop-app
+        plan: free
+      # A revoked demo key, to show that revoked keys are refused.
+      - id: key-revoked
+        key-hash: e50e1a1d0833c9bfc4040ba21d5d33e99a11517e1df80c8663f44c1cd346d8f1
+        display-prefix: ak_demo_revo
+        consumer: test-script
+        plan: free
+        revoked: true
+    jwt:
+      issuer: argus-demo

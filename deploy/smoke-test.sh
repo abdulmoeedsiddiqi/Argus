@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
-# Smoke test of the routing demo: client -> gateway -> backend copy -> client.
+# Smoke test of the demo: client -> gateway (authentication, routing) -> backend copy -> client.
 # Usage: deploy/smoke-test.sh [gateway-url]     (default http://localhost:8080)
 set -euo pipefail
 
 GATEWAY_URL="${1:-http://localhost:8080}"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Demo credentials (not real secrets); see the README.
+DEMO_KEY="ak_demo_shopapp_2026_argus"
+REVOKED_KEY="ak_demo_revoked_2026_argus"
 failures=0
 
 check() {
@@ -16,19 +20,35 @@ check() {
   fi
 }
 
-# FR-01: a configured route is forwarded to a backend.
-body="$(curl --silent --show-error --max-time 10 "${GATEWAY_URL}/orders/42")"
-check "GET /orders/42 returns order 42" '"id":42' "${body}"
+# Prints "<status> <body>" for one request; extra arguments are passed to curl.
+call() {
+  curl --silent --show-error --max-time 10 --write-out ' %{http_code}' "$@" \
+    | awk '{ status = $NF; $NF = ""; print status " " $0 }'
+}
 
-# FR-01: an unknown path is rejected with a reason code.
-body="$(curl --silent --show-error --max-time 10 "${GATEWAY_URL}/payments/1")"
-check "GET /payments/1 is rejected with ROUTE_NOT_FOUND" 'ROUTE_NOT_FOUND' "${body}"
+# FR-06: API keys.
+check "valid X-API-Key returns 200 and order 42" '200 {"id":42' \
+  "$(call -H "X-API-Key: ${DEMO_KEY}" "${GATEWAY_URL}/orders/42")"
+check "missing key is refused with 401" '401 ' "$(call "${GATEWAY_URL}/orders/42")"
+check "wrong key is refused with 401" '401 ' \
+  "$(call -H "X-API-Key: ak_demo_wrong_key" "${GATEWAY_URL}/orders/42")"
+check "revoked key is refused with 401" '401 ' \
+  "$(call -H "X-API-Key: ${REVOKED_KEY}" "${GATEWAY_URL}/orders/42")"
+check "refusals carry the reason code" 'AUTHENTICATION_FAILED' "$(call "${GATEWAY_URL}/orders/42")"
+
+# FR-05: JWTs.
+check "valid JWT returns 200" '200 ' \
+  "$(call -H "Authorization: Bearer $("${HERE}/demo-jwt.sh")" "${GATEWAY_URL}/orders/42")"
+check "expired JWT is refused with 401" '401 ' \
+  "$(call -H "Authorization: Bearer $("${HERE}/demo-jwt.sh" expired)" "${GATEWAY_URL}/orders/42")"
+
+# FR-01: an unknown path is rejected with a reason code (after authentication).
+check "unknown path is rejected with ROUTE_NOT_FOUND" 'ROUTE_NOT_FOUND' \
+  "$(call -H "X-API-Key: ${DEMO_KEY}" "${GATEWAY_URL}/payments/1")"
 
 # FR-02: over 40 requests both Orders copies answer (weighted 3:1).
-copies="$(for _ in $(seq 1 40); do
-  curl --silent --max-time 10 --output /dev/null --dump-header - "${GATEWAY_URL}/orders/1" \
-    | tr -d '\r' | grep -i '^x-argus-upstream:' || true
-done | sort | uniq -c)"
+copies="$(curl --silent --max-time 60 --output /dev/null -H "X-API-Key: ${DEMO_KEY}" \
+  --write-out '%header{x-argus-upstream}\n' "${GATEWAY_URL}/orders/[1-40]" | sort | uniq -c)"
 echo "${copies}"
 check "orders-a receives requests" 'orders-a' "${copies}"
 check "orders-b receives requests" 'orders-b' "${copies}"

@@ -15,6 +15,9 @@ x-gateway: &gateway
   environment: &gateway-env
     # Routes and backend copies of the demo: argus-gateway/src/main/resources/application-demo.yml
     SPRING_PROFILES_ACTIVE: demo
+    # Demo-only signing secret for JWTs (at least 32 bytes). Never use it outside the demo;
+    # a real deployment supplies its own value from a secret store. Override with ARGUS_JWT_SECRET.
+    ARGUS_AUTH_JWT_SECRET: ${ARGUS_JWT_SECRET:-demo-only-jwt-secret-not-for-real-use-0123456789}
     SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
     SPRING_DATA_REDIS_HOST: redis
     JAVA_TOOL_OPTIONS: -Xmx384m
