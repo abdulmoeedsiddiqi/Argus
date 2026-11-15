@@ -19,6 +19,7 @@ import dev.argus.core.pipeline.FilterChain;
 import dev.argus.core.pipeline.FilterResult;
 import dev.argus.core.pipeline.RejectionReason;
 import dev.argus.core.pipeline.RequestContext;
+import dev.argus.gateway.events.ReadinessGate;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
@@ -30,6 +31,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
@@ -164,6 +166,21 @@ class GatewayEntryPointTest {
     }
 
     /** A chain whose answer the test chooses and whose last input the test can inspect. */
+    @Test
+    @DisplayName("TC-12.3: while the readiness gate is closed every request gets 503 NOT_READY")
+    void closedGateRefusesRequests() throws Exception {
+        ReadinessGate closed = ReadinessGate.closed();
+        GatewayEntryPoint entryPoint = new GatewayEntryPoint(chain, closed);
+        chain.seen = null;
+
+        var response = entryPoint.handle(new MockHttpServletRequest("GET", "/orders/42"), null);
+
+        assertThat(response.getStatusCode().value()).isEqualTo(503);
+        assertThat(response.getBody()).isEqualTo(new RejectionBody(
+                "NOT_READY", "this gateway instance is still loading its configuration"));
+        assertThat(chain.seen).as("the filter chain must not run").isNull();
+    }
+
     static final class StubChain implements FilterChain {
         private volatile FilterResult answer;
         private volatile RuntimeException failure;
@@ -186,6 +203,11 @@ class GatewayEntryPointTest {
         @Bean
         StubChain stubChain() {
             return new StubChain();
+        }
+
+        @Bean
+        ReadinessGate readinessGate() {
+            return ReadinessGate.alreadyOpen();
         }
     }
 }
