@@ -250,19 +250,36 @@ JDK 21 has to be installed.
 
 ### Run locally
 
-**Routing demo** (one gateway in front of six backend copies). No profile and no manual build
-are needed; the images compile the code themselves:
+**Demo** (one gateway in front of six backend copies; authentication, routing and load
+balancing). No profile and no manual build are needed; the images compile the code themselves:
 
 ```bash
 docker compose -f deploy/docker-compose.yml up --build -d
-curl -i http://localhost:8080/orders/42   # 200, X-Argus-Upstream names the copy that answered
-curl -i http://localhost:8080/payments/1  # 404 {"reason":"ROUTE_NOT_FOUND",...}
-deploy/smoke-test.sh                      # the same checks as a script
+
+# Every request needs a credential: an API key ...
+curl -i -H "X-API-Key: ak_demo_shopapp_2026_argus" http://localhost:8080/orders/42   # 200
+curl -i http://localhost:8080/orders/42                                              # 401, no key
+curl -i -H "X-API-Key: ak_demo_revoked_2026_argus" http://localhost:8080/orders/42   # 401, revoked
+
+# ... or a signed JWT (the script mints a demo token; "expired" gives one that is too old)
+curl -i -H "Authorization: Bearer $(deploy/demo-jwt.sh)" http://localhost:8080/orders/42          # 200
+curl -i -H "Authorization: Bearer $(deploy/demo-jwt.sh expired)" http://localhost:8080/orders/42  # 401
+
+deploy/smoke-test.sh                      # all of the above and the routing checks, as a script
 
 # Fault injection on a backend copy: ok | slow | fail  (orders-a is on host port 8081)
 curl -X POST "http://localhost:8081/fault?mode=fail"
 # After three failed health checks (about 15 s) orders-a stops receiving requests.
 ```
+
+> **Demo credentials are not secrets.** The two `ak_demo_…` keys and the JWT signing secret in
+> `deploy/docker-compose.yml` exist only so the demo can be tried with `curl`. The gateway
+> itself is configured with the SHA-256 hashes of the keys, never with the keys. A real
+> deployment issues its own keys through the Admin API and supplies its own `ARGUS_JWT_SECRET`.
+
+A 200 answer carries `X-Argus-Upstream` (the backend copy that answered). A refusal is a JSON
+body with a reason code, for example `{"reason":"AUTHENTICATION_FAILED",...}` or
+`{"reason":"ROUTE_NOT_FOUND",...}`.
 
 | Route | Backend copies | Load balancing |
 |---|---|---|
@@ -314,6 +331,8 @@ Services are configured through environment variables (set in `deploy/docker-com
 |---|---|---|
 | `ARGUS_INSTANCE_ID` | Gateway | Identifies the instance in events and metrics |
 | `SPRING_PROFILES_ACTIVE=demo` | Gateway | Loads the demo routes and backend copies (`argus.routes`, `argus.upstreams`) |
+| `ARGUS_AUTH_JWT_SECRET` | Gateway | Shared HS256 secret for JWT validation (at least 32 bytes). JWTs are refused when it is not set |
+| `ARGUS_AUTH_JWT_ISSUER` | Gateway | Issuer a JWT must name (`argus-demo` in the demo profile) |
 | `ARGUS_HEALTH_CHECK_*` | Gateway | Active health checks: `ENABLED`, `PATH` (`/health`), `INTERVAL` (5s), `TIMEOUT` (2s), `FAILURE_THRESHOLD` (3) |
 | `SPRING_KAFKA_BOOTSTRAP_SERVERS` | Gateway, Admin, Metering, Abuse | Kafka address |
 | `SPRING_DATA_REDIS_HOST` | Gateway | Redis address for shared rate limits |
